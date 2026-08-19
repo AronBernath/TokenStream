@@ -280,7 +280,7 @@ The response includes ranked context and metadata that your application can use 
 Full user-facing documentation is served with Mintlify:
 
 ```text
-https://tokenstream.mintlify.app
+https://tokenstream.mintlify.site
 ```
 
 The Mintlify source lives in this repository. The docs entry point is `docs.json`, with pages organized under:
@@ -294,6 +294,8 @@ The Mintlify source lives in this repository. The docs entry point is `docs.json
 - `review/`
 
 Internal service documentation and OpenAPI contracts live under `docs/`.
+
+To connect hosting, create or open the TokenStream project in the Mintlify dashboard, install the Mintlify GitHub App from the dashboard, and point the project at this repository with `docs.json` as the documentation root. Mintlify deploys automatically after pushes to the connected branch and provides pull request previews when the GitHub App is installed.
 
 ## Development
 

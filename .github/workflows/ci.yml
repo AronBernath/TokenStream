@@ -11,6 +11,68 @@ permissions:
   contents: read
 
 jobs:
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate Mintlify navigation
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path(".")
+          config_path = root / "docs.json"
+          if not config_path.exists():
+              sys.exit("docs.json is missing from the repository root")
+
+          with config_path.open(encoding="utf-8") as handle:
+              config = json.load(handle)
+
+          required = ["name", "theme", "colors", "navigation"]
+          missing_required = [field for field in required if field not in config]
+          if missing_required:
+              sys.exit(f"docs.json missing required field(s): {', '.join(missing_required)}")
+
+          colors = config.get("colors") or {}
+          if not colors.get("primary"):
+              sys.exit("docs.json must define colors.primary")
+
+          groups = (config.get("navigation") or {}).get("groups") or []
+          pages = []
+          for group in groups:
+              pages.extend(group.get("pages") or [])
+
+          if not pages:
+              sys.exit("docs.json navigation has no pages")
+
+          missing_pages = [page for page in pages if not (root / f"{page}.mdx").exists()]
+          if missing_pages:
+              sys.exit("docs.json references missing page(s): " + ", ".join(missing_pages))
+
+          forbidden = [
+              "Generated content was removed",
+              "planning or review artifacts",
+              "Re-run generation",
+          ]
+          docs_files = [root / f"{page}.mdx" for page in pages]
+          bad_markers = []
+          for file_path in docs_files:
+              text = file_path.read_text(encoding="utf-8")
+              for marker in forbidden:
+                  if marker in text:
+                      bad_markers.append(f"{file_path}: {marker}")
+
+          if bad_markers:
+              sys.exit("Mintlify docs contain cleanup placeholder text:\n" + "\n".join(bad_markers))
+
+          print(f"Validated {len(pages)} Mintlify page(s)")
+          PY
+
   python:
     name: Python
     runs-on: ubuntu-latest
