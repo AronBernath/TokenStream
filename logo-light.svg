@@ -1,0 +1,7 @@
+<svg width="198" height="36" viewBox="0 0 198 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title">
+  <title id="title">TokenStream</title>
+  <rect x="1" y="1" width="34" height="34" rx="9" fill="#0F172A"/>
+  <path d="M10 12.5H25.5M10 18H21.5M10 23.5H27" stroke="#67E8F9" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M25 12.5L30 18L25 23.5" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="45" y="24" fill="#0F172A" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="21" font-weight="760" letter-spacing="0">TokenStream</text>
+</svg>

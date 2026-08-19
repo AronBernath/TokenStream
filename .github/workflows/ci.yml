@@ -42,6 +42,26 @@ jobs:
           if not colors.get("primary"):
               sys.exit("docs.json must define colors.primary")
 
+          def collect_asset_paths(value):
+              if isinstance(value, str):
+                  return [value]
+              if isinstance(value, dict):
+                  return [
+                      nested
+                      for key, nested in value.items()
+                      if key in {"light", "dark"} and isinstance(nested, str)
+                  ]
+              return []
+
+          asset_paths = collect_asset_paths(config.get("logo")) + collect_asset_paths(config.get("favicon"))
+          missing_assets = [
+              asset
+              for asset in asset_paths
+              if not (root / asset.lstrip("/")).exists()
+          ]
+          if missing_assets:
+              sys.exit("docs.json references missing asset(s): " + ", ".join(missing_assets))
+
           groups = (config.get("navigation") or {}).get("groups") or []
           pages = []
           for group in groups:
