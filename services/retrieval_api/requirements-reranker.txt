@@ -1,0 +1,3 @@
+# Optional local reranker dependencies.
+# Install these only in a custom retrieval image when RERANKER_ENABLED=true.
+sentence-transformers>=3.0.0

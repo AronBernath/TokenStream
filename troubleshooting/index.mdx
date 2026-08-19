@@ -1,0 +1,127 @@
+---
+title: "Troubleshooting"
+description: "Map common user-visible failures to likely causes, checks, and recovery steps."
+---
+
+# Troubleshooting
+
+Use this page when a TokenStream request fails, a corpus will not ingest, retrieval returns unexpected results, or a service appears unhealthy. The guide is organized by failure boundary: authentication and scopes, policy and model routing, retrieval, ingestion, and service health.
+
+For each symptom, collect the evidence listed in [Evidence to collect](#evidence-to-collect), especially the exact status code, response body, request ID, and relevant service logs.
+
+## First checks
+
+<Steps>
+<Step title="Identify the failure boundary">
+Determine whether the failure came from `orchestrator-api`, `retrieval-api`, the management/registry layer hosted by `dev-ui`, or `ingestion-worker`. If a chat request fails after retrieval was involved, check whether the error was returned before or after the retrieval call.
+</Step>
+
+<Step title="Check service health">
+Use the source-backed health probes:
+
+- Orchestrator API: `GET /health`
+- Retrieval API: `GET /health`
+- Ingestion worker: `GET /health`
+
+Orchestrator API and Retrieval API return `{"ok": true}` when reachable. For the ingestion worker, also review worker logs because job failures do not always appear at the health route.
+</Step>
+
+<Step title="Reproduce with a minimal request">
+Reduce the failing request to the smallest valid or intentionally failing payload. For retrieval, a minimal `/v1/rag/query` request with only `query` and `corpus_id` is useful. For chat, test `/v1/chat/completions` with one message and an explicit `model` ID.
+</Step>
+</Steps>
+
+## Symptom table
+
+| Symptom | Likely cause | First check |
+| --- | --- | --- |
+| `401 Unauthorized` from the Orchestrator API | Service-level Bearer authentication is enabled and the token is missing, invalid, or missing the required scope | Confirm the request uses `Authorization: Bearer <machine-key>` and the key has the endpoint-appropriate scope |
+| `422` with `error.code: "invalid_request"` on `/v1/rag/query` | Missing or empty `query` | Check the request body for a non-empty `query` |
+| `422` with `error.code: "invalid_pipeline"` | Requested corpus is not allowed by the selected pipeline, or no default corpus exists when omitted | Review `allowed_corpus_ids` and `default_corpus_id` for the pipeline |
+| `422` with `error.code: "provider_resolution_failed"` | Empty or ambiguous `model`, and no policy default provider/model can resolve it | Check the requested `model`, `provider:model` prefix, and pipeline defaults |
+| Retrieval returns `404` with `error.code: "corpus_not_found"` | The corpus ID is unknown to the retrieval service or has no registry entry | Confirm the corpus exists and the same `corpus_id` is used consistently |
+| Retrieval returns `200` with `"chunks": []` | Filters match nothing, the corpus is not ingested, or retrieval indexes are empty | Verify ingestion completed and filters are not too restrictive |
+| Ingestion job is `failed` | All sources failed, no chunks were produced, embedding failed, or indexing failed | Inspect the job status and ingestion worker logs |
+| Ingestion job is `skipped` or reports `no_matching_sources` | The requested source IDs or document IDs do not match the corpus | Compare the job request with registered source IDs |
+| Source deletion with `purge=true` returns `502` | The management API could not purge indexed retrieval artifacts in the ingestion worker | Check ingestion worker reachability and logs |
+| Chat request reaches the model provider but fails | Upstream provider rejected the request because of credentials, request shape, policy, or provider outage | Check the provider record, secret reference, upstream status, and provider response body |
+| Orchestrator reports retrieval API failure | `retrieval_api_url` is wrong, retrieval API is down, or retrieval returned a non-JSON/invalid response | Check retrieval health and Orchestrator API settings |
+
+## Authentication and scope failures
+
+### `401 Unauthorized`
+
+The Orchestrator API enforces service-level Bearer authentication when `ORCHESTRATOR_API_KEYS_JSON` or `ORCHESTRATOR_API_KEY` is configured at runtime. A `401` normally means the token is absent, malformed, invalid, or does not satisfy the endpoint scope.
+
+Diagnostic steps:
+
+1. Confirm whether service-level authentication is intentionally enabled in the runtime environment.
+2. Verify the request uses the `Authorization` header with a machine key, not a browser session cookie.
+3. Identify the required scope for the endpoint from the deployment's machine-key configuration. Source-backed examples include `rag:query` for structured retrieval, `chat:invoke` for chat-style machine keys, and `corpora:write` or `corpora:read` for management mutations and polling.
+4. Check the key ID and subject are active and not deleted after the runtime snapshot was loaded.
+
+<Warning>
+Do not put machine keys, bearer tokens, session cookies, or provider secrets in logs, issue descriptions, screenshots, or source control. Collect key metadata such as key ID, subject, and scopes instead of the sensitive value.
+</Warning>
+
+Common fixes:
+
+- Rotate the machine key if its plaintext value is lost or suspected compromised.
+- Publish a machine key with the exact scopes needed by the client. Do not grant broader management scopes to a normal chat or retrieval client.
+- If no `401` occurs and authentication is expected, verify whether service-level auth was enabled in the runtime environment.
+
+## Policy and model routing failures
+
+### Disallowed corpus
+
+`/v1/rag/query` resolves the pipeline and calls `enforce_corpus`. If the requested corpus is omitted and the pipeline has no default corpus, the request fails with `422` and `error.code: "invalid_pipeline"`. If the requested corpus is not in the pipeline's `allowed_corpus_ids`, the same error is returned.
+
+Check:
+
+- The exact `pipeline_id` sent by the client.
+- The pipeline's `default_corpus_id`.
+- The pipeline's `allowed_corpus_ids`.
+- Whether the corpus ID contains a typo, tenant prefix, or environment mismatch.
+
+### Disallowed model or provider
+
+Chat completion can use either a plain model ID or a `provider:model` selector such as `openai:gpt-5.4-mini`. A request fails when:
+
+- The `model` is empty and no policy default provider/model exists.
+- The requested provider or model is not allowed by the pipeline.
+- The resolved model is ambiguous across providers.
+- The selected provider is not configured.
+
+Use `GET /v1/models` to discover the model IDs currently exposed by the configured providers. Model discovery may include provider-prefixed IDs for unambiguous routing.
+
+### Retrieval tool is not available
+
+The Orchestrator API may provide a retrieval tool named `rag__query` when tools are allowed. If a pipeline does not allow that tool, a model call will not receive the server-side retrieval tool. If retrieval is expected inside a chat workflow, verify the pipeline's allowed tools and the selected provider's tool capability.
+
+### Upstream provider errors
+
+OpenAI-compatible provider calls may fail when:
+
+- The provider `base_url` is unreachable.
+- The provider API key cannot be resolved from the configured secret reference.
+- The provider returns a `4xx` or `5xx` status.
+- The selected provider/model does not support the requested tool schema or request shape.
+
+Retryable upstream statuses include `408`, `409`, `429`, `500`, `502`, `503`, and `504` for OpenAI-compatible providers. TokenStream may also retry tool-related upstream failures without tools when the provider response suggests a tool-schema mismatch.
+
+## Retrieval failures
+
+### Unknown corpus
+
+`retrieval-api` returns `404` with a structured error envelope when `corpus_id` is unknown:
+
+```json
+{
+"error": {
+"code": "corpus_not_found",
+"message": "Unknown corpus_id",
+"details": {
+"corpus_id": "..."
+}
+}
+}

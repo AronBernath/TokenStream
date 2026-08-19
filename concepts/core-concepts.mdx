@@ -1,0 +1,66 @@
+---
+title: "Core Concepts"
+description: "Define the main TokenStream concepts before you configure providers, policies, corpora, and retrieval."
+---
+
+# Core Concepts
+
+TokenStream is easiest to understand as a set of reusable runtime concepts. Client applications use these concepts to describe what they are allowed to do and what source material they can retrieve from.
+
+## Providers
+
+A provider is an upstream model backend. The checked-in defaults include OpenAI-compatible providers and local Ollama-style examples. Provider records describe the provider name, base URL, available models, capability flags, and secret reference.
+
+Provider secrets should be referenced through environment variables such as `OPENAI_API_KEY` or `DEEPSEEK_API_KEY`. Do not store real provider keys in `providers.json`.
+
+## Policies
+
+A policy controls what a request pipeline may use. Policies can define:
+
+- the default corpus
+- allowed corpora
+- default retrieval filters
+- allowed tools
+- allowed providers
+- allowed models
+- token and retrieval limits
+- default provider and model
+- chunking behavior for ingestion
+
+Policies are the main safety boundary between a client workflow and the model, retrieval, and tool capabilities available in the runtime.
+
+## Machine API keys
+
+Machine API keys authorize service-to-service traffic. They are separate from human admin users. A client application should use a machine key with only the scopes it needs, such as read access for retrieval or write access for corpus setup and ingestion.
+
+When service authentication is enabled, requests include:
+
+```http
+Authorization: Bearer <machine-key>
+```
+
+## Corpora
+
+A corpus is a named collection of source material that can be ingested and retrieved together. Good corpus boundaries are product docs, a repository snapshot, a customer knowledge base, or a tenant-specific support corpus.
+
+Use stable corpus IDs so deployments can recreate or update the same corpus predictably.
+
+## Sources
+
+A source is a document, URL, file, object, or archive registered under a corpus. Sources are not immediately searchable after registration. They become useful after an ingestion job fetches, parses, chunks, embeds, and indexes them.
+
+## Ingestion jobs
+
+An ingestion job tells the worker to process corpus sources. The worker writes retrieval artifacts to vector, lexical, and graph-aware storage. Use corpus readiness checks before assuming a newly added source is retrievable.
+
+## Retrieval profiles
+
+A retrieval profile defines reusable retrieval behavior for a corpus. It can specify default filters, citation fields, lexical fields, filterable fields, and strict filter behavior. Corpus-level retrieval config can override profile defaults, and request-time filters are applied last.
+
+## Tools
+
+TokenStream can expose retrieval as a tool and can coordinate MCP-backed tools when enabled. Policies decide which tools are available to a pipeline.
+
+<Warning>
+Do not treat every internal service route as public API. Public client integrations should prefer documented management, retrieval, and OpenAI-compatible routes, plus the deployed configuration for your environment.
+</Warning>

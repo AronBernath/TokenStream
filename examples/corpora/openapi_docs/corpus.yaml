@@ -1,0 +1,13 @@
+corpus_id: openapi_docs
+title: "OpenAPI Documentation"
+jurisdiction: global
+languages: ["en"]
+
+index:
+  qdrant_collection: "corp_openapi_docs"
+  opensearch_index: "corp_openapi_docs"
+
+chunking:
+  strategy: llm
+  target_chars: 2000
+  overlap_chars: 200

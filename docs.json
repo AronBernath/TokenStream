@@ -1,0 +1,64 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "TokenStream",
+  "colors": {
+    "primary": "#2563eb",
+    "light": "#eff6ff",
+    "dark": "#1e3a8a"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Start Here",
+        "pages": [
+          "overview/what-is-tokenstream",
+          "overview/behind-your-application"
+        ]
+      },
+      {
+        "group": "Getting Started",
+        "pages": [
+          "quickstart/index",
+          "quickstart/configure-access"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "concepts/core-concepts",
+          "concepts/policies-and-model-access",
+          "concepts/retrieval-and-source-backed-context"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/connect-a-client-application",
+          "guides/use-retrieval-in-a-workflow",
+          "guides/ingest-and-reingest-sources",
+          "guides/operate-tokenstream"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/api-reference",
+          "reference/configuration-reference"
+        ]
+      },
+      {
+        "group": "Troubleshooting",
+        "pages": [
+          "troubleshooting/index"
+        ]
+      },
+      {
+        "group": "Review Notes",
+        "pages": [
+          "review/limits-and-evidence-gaps"
+        ]
+      }
+    ]
+  }
+}

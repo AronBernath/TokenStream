@@ -1,0 +1,32 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = [
+  ".git",
+  ".pytest_cache",
+  ".ruff_cache",
+  "data",
+  "notebooks",
+  "services/dev-ui/frontend/dist",
+  "services/dev-ui/frontend/node_modules",
+]
+
+[tool.ruff.lint]
+# Start with high-signal correctness rules; style/import cleanup can be tightened
+# once the existing test harness is green in CI.
+select = [
+  "E4",
+  "E7",
+  "E9",
+  "F",
+]
+ignore = [
+  # Several service/test modules adjust sys.path for local execution before
+  # importing app packages. Remove this once the repo has package installs.
+  "E402",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

@@ -1,0 +1,47 @@
+---
+title: "Limits And Evidence Gaps"
+description: "List unsupported assumptions, source gaps, manual verification needs, and publication checks."
+---
+
+# Limits And Evidence Gaps
+
+This page is a pre-publication review for the TokenStream documentation package. It records source-backed boundaries, claims that must not be published as confirmed features, conflicts that need manual verification, and workflow decisions that should be closed before the branch is ready.
+
+<Warning>
+TokenStream is the public product name used in these documents. Runtime code, configuration keys, service names, and OpenAPI identifiers may still use `orchestrator`, `orchestrator-api`, `config_auth`, `ingestion-worker`, `retrieval-api`, and `dev-ui`.
+</Warning>
+
+## Unsupported claims
+
+Do not publish the following items as supported TokenStream behavior without additional evidence or an explicit product decision.
+
+| Unsupported claim | Evidence-backed boundary |
+| --- | --- |
+| TokenStream is a hosted, managed, or multi-tenant SaaS product | The supplied sources describe a local Docker runtime, checked-in OpenAPI contracts, and internal services. There is no evidence for public cloud hosting, pricing, SLAs, tenant management, or production support commitments. |
+| Uploaded content receives production-grade security scanning | The registry/auth documentation states that corpus resource management currently performs only basic reachability and format-shape validation for uploaded files and URLs. Antivirus scanning, MIME sniffing defenses, URL allowlists/denylists, content-size limits, and stricter filesystem isolation are listed as future hardening. |
+| Application developers should call the bare retrieval service directly | Service documentation says `retrieval-api` may be called by trusted internal clients, but normal deployments use the TokenStream facade or retrieval tools. |
+| Ingestion worker polling and job-claim routes are public APIs | Prioritized endpoint notes identify worker polling and job-claim endpoints as internal control-plane routes, not public client APIs. |
+| Runtime reload always returns a complete structured result | The runtime reload reporting shape is described in code-drift notes as a planned normalization. The checked-in deployment references an internal reload route, but the public/consumer-facing reload contract is not proven. |
+| MCP tool orchestration is fully documented and stable | MCP support is described as optional and available when enabled, but the exact public configuration, endpoint surface, tool behavior, and failure handling are not fully documented in the source material. |
+| Checked-in provider examples are all safe public defaults | The provider fixture file includes private or internal base URLs alongside public provider definitions. Those entries should not be published in examples until reviewed. |
+| Specific admin UI labels, screenshots, and click paths are authoritative | Source-backed management behavior comes from management API routes and implementation models. UI controls, labels, and navigation should be treated as unverified for public documentation. |
+| All source formats and built-in processor adapters are known and supported | Ingestion fetches, parses, chunks, embeds, and indexes sources, but the full public source-format and processor matrix is not established from the supplied sources. |
+
+## Manual checks
+
+These items need manual verification before the documentation can be considered publish-ready.
+
+| Manual verification | Why it matters |
+| --- | --- |
+| Confirm the authoritative `retrieval-api` port | The service overview and local topology use `8000`, while the checked-in Retrieval API OpenAPI contract lists `localhost:8003`. |
+| Confirm the retrieval corpus discovery path | Prioritized endpoint notes refer to `/v1/corpora`, while the Retrieval API contract and related tests show `/corpora`. |
+| Confirm the management API host and port | The Management API OpenAPI document lists `http://localhost:8000`, but the admin/registry surface is described as hosted by the browser/admin service on port `8010`. |
+| Confirm the intended first successful request | The quickstart must make the shortest path explicit: an OpenAI-compatible chat completion, a deterministic RAG query, or both. |
+| Confirm whether direct retrieval is a public developer surface | Documentation should either mark direct `retrieval-api` access as trusted/internal only or provide proof that application developers may call it directly. |
+| Review all provider examples for internal or private URLs | Do not publish provider or model examples that expose internal endpoints, demo-only providers, or unverified hosted infrastructure. |
+| Confirm the supported source-format and processor matrix | Source ingestion supports fetching, parsing, chunking, embedding, and indexing, but the exact public source formats and processor adapters need confirmation. |
+| Verify ingestion job state names and transitions | Source material shows failed, cancelled, and completed behavior. Do not invent additional state names, transitions, or retry semantics. |
+| Confirm authentication setup warnings | The bootstrap local `admin:admin` account is intended for local development only and should be rotated immediately. This warning must remain visible in setup documentation. |
+| Decide whether the internal reload route belongs in public operations docs | The reload route appears as an internal control-plane mechanism. It should not be presented as a public management endpoint unless explicitly approved. |
+| Confirm the management API examples are accurate | The checked-in Management API contract describes multiple management resources, but some request and response schemas are not complete in the evidence. |
+| Confirm retrieval profile and processor requirements | Retrieval profiles and processor records are supported in the runtime, but baseline setup should make clear whether they are required for a first working request or are optional for that path. |

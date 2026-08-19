@@ -1,0 +1,427 @@
+openapi: 3.1.0
+info:
+  title: Retrieval API
+  version: 1.0.0
+  summary: Corpus-scoped hybrid retrieval service for the RAG stack.
+  description: |
+    Checked-in OpenAPI contract for `retrieval-api`.
+
+    This service performs corpus-scoped retrieval and returns portable chunk payloads
+    that can be consumed by upstream services such as `orchestrator-api` or trusted
+    internal clients.
+
+    Compatibility policy:
+    - additive changes only within `/v1`
+    - breaking changes require a new major path such as `/v2`
+servers:
+  - url: http://localhost:8003
+    description: Local development default
+tags:
+  - name: Health
+    description: Liveness and operational probes.
+  - name: Retrieval
+    description: Versioned retrieval endpoints.
+  - name: Metadata
+    description: Discovery endpoints for configured corpora.
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getRetrievalHealth
+      summary: Liveness probe
+      description: Returns a lightweight health response for container and load balancer checks.
+      responses:
+        '200':
+          description: Service is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                ok: true
+
+  /v1/query:
+    post:
+      tags: [Retrieval]
+      operationId: queryRetrievalV1
+      summary: Versioned retrieval endpoint
+      description: |
+        Executes corpus-scoped retrieval and returns a grounded answer plus the ranked
+        chunks used to produce it.
+
+        Retrieval never crosses corpora. Filters are applied consistently to lexical
+        and vector retrieval.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+            examples:
+              minimal:
+                value:
+                  query: What controls apply to incident reporting?
+                  corpus_id: my_corpus
+              filtered:
+                value:
+                  query: Show requirements for business continuity.
+                  corpus_id: my_corpus
+                  top_k: 5
+                  filters:
+                    jurisdiction: HU
+                    doc_type: decree
+      responses:
+        '200':
+          description: Retrieval completed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '404':
+          description: Unknown `corpus_id`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: corpus_not_found
+                  message: Unknown corpus_id
+                  details:
+                    corpus_id: hu_missing
+        '422':
+          description: Request validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '500':
+          description: Unhandled server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: internal_error
+                  message: Internal server error
+
+  /v1/lookup:
+    post:
+      tags: [Retrieval]
+      operationId: lookupRetrievalV1
+      summary: Versioned lexical/exact lookup endpoint
+      description: |
+        Executes corpus-scoped lexical lookup for exact terms such as endpoint
+        paths, code symbols, configuration keys, source paths, and product names.
+
+        Lookup uses SQLite-backed lexical, metadata, field, and graph-alias
+        signals. It does not call the embedder or dense vector database.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LookupRequest'
+            examples:
+              architectureTerms:
+                value:
+                  terms:
+                    - /v1/chat/completions
+                    - IngestionJob
+                    - retrieval_profile_id
+                  corpus_id: default
+                  top_k: 5
+                  max_results: 20
+      responses:
+        '200':
+          description: Lookup completed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '404':
+          description: Unknown `corpus_id` or missing lexical index.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '500':
+          description: Unhandled server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /query:
+    post:
+      tags: [Retrieval]
+      operationId: queryRetrievalLegacy
+      summary: Legacy alias of /v1/query
+      description: Deprecated alias maintained for backward compatibility.
+      deprecated: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+      responses:
+        '200':
+          description: Retrieval completed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '404':
+          description: Unknown `corpus_id`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '500':
+          description: Unhandled server error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /corpora:
+    get:
+      tags: [Metadata]
+      operationId: listCorpora
+      summary: List configured corpora
+      description: |
+        Returns the corpus identifiers currently discoverable by the service. The
+        result is derived from the registry.
+      responses:
+        '200':
+          description: Configured corpora.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorporaResponse'
+              example:
+                corpora:
+                  - my_corpus
+                  - product_docs
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+
+    QueryRequest:
+      type: object
+      additionalProperties: false
+      required: [query, corpus_id]
+      properties:
+        query:
+          type: string
+          description: Natural language query string.
+        corpus_id:
+          type: string
+          description: Target corpus identifier. Retrieval never crosses corpora.
+        filters:
+          type: object
+          description: Optional metadata filters applied consistently to vector and lexical retrieval.
+          default: {}
+          additionalProperties: true
+        top_k:
+          type: integer
+          minimum: 1
+          default: 8
+          description: Number of chunks to return. Must be greater than 0.
+
+    LookupRequest:
+      type: object
+      additionalProperties: false
+      required: [terms, corpus_id]
+      properties:
+        terms:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: Exact lexical terms, identifiers, endpoint paths, symbols, or configuration keys to look up.
+          items:
+            type: string
+        corpus_id:
+          type: string
+          description: Target corpus identifier. Lookup never crosses corpora.
+        filters:
+          type: object
+          description: Optional metadata filters applied to lexical lookup.
+          default: {}
+          additionalProperties: true
+        top_k:
+          type: integer
+          minimum: 1
+          default: 5
+          description: Maximum chunks to return per lookup term. Must be greater than 0.
+        max_results:
+          type: integer
+          minimum: 1
+          default: 20
+          description: Maximum chunks to return across all terms. Must be greater than 0.
+
+    RetrievedChunk:
+      type: object
+      additionalProperties: false
+      required:
+        - chunk_id
+        - score
+        - text
+        - doc_id
+        - doc_type
+        - source_url
+      properties:
+        chunk_id:
+          type: string
+          description: Stable chunk identifier, unique within the corpus at minimum.
+        score:
+          type: number
+          description: Comparable retrieval score. Higher values are more relevant.
+        text:
+          type: string
+          description: Raw chunk text without prompt formatting.
+        doc_id:
+          type: string
+          description: Source document identifier.
+        doc_type:
+          type: string
+          description: Source document type, for example law, decree, or guidance.
+        source_url:
+          type: string
+          description: Canonical source URL for citation rendering.
+        title:
+          type:
+            - string
+            - 'null'
+          description: Document or section title when available.
+        section_id:
+          type:
+            - string
+            - 'null'
+          description: Section or article identifier when available.
+        tags:
+          type:
+            - array
+            - 'null'
+          description: Optional document or chunk tags.
+          items:
+            type: string
+        version_date:
+          type:
+            - string
+            - 'null'
+          description: Optional source version date.
+        metadata:
+          type:
+            - object
+            - 'null'
+          description: Additional chunk metadata.
+          additionalProperties: true
+
+    QueryResponse:
+      type: object
+      additionalProperties: false
+      required: [api_version, answer, citations, chunks]
+      properties:
+        api_version:
+          type: string
+          default: v1
+          description: API contract version for this payload.
+        answer:
+          type: string
+          description: Grounded textual answer synthesized from returned chunks.
+        citations:
+          type: array
+          description: Citation objects aligned with returned chunks.
+          items:
+            type: object
+            additionalProperties: true
+        chunks:
+          type: array
+          description: Portable citation-ready chunks.
+          items:
+            $ref: '#/components/schemas/RetrievedChunk'
+
+    CorporaResponse:
+      type: object
+      additionalProperties: false
+      required: [corpora]
+      properties:
+        corpora:
+          type: array
+          items:
+            type: string
+
+    ErrorObject:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Stable machine-readable error code.
+        message:
+          type: string
+          description: Human-readable error message.
+        details:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+          description: Optional structured error details.
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorObject'
+
+    ValidationErrorItem:
+      type: object
+      additionalProperties: true
+      required: [loc, msg, type]
+      properties:
+        loc:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+        type:
+          type: string
+
+    ValidationErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationErrorItem'

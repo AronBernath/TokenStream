@@ -1,0 +1,60 @@
+---
+title: "Retrieval And Source-Backed Context"
+description: "Understand corpora, retrieval, citations, filters, and evidence review in TokenStream."
+---
+
+# Retrieval And Source-Backed Context
+
+TokenStream retrieval turns ingested corpus sources into ranked context that a client application or model workflow can use. The goal is not just semantic search; the goal is source-backed context that can be traced back to the material that produced it.
+
+## Retrieval pipeline
+
+After sources are ingested, TokenStream can retrieve from:
+
+- lexical indexes for exact and keyword grounding
+- dense vector indexes for semantic similarity
+- graph-aware tables for canonical nodes, aliases, and local expansion
+- optional reranking when the deployment includes a reranker
+
+The retrieval API returns ranked chunks with metadata. The orchestration layer can also use retrieval as a tool inside a model request when the selected policy allows it.
+
+## Corpus-scoped retrieval
+
+Every retrieval workflow should start with a corpus boundary. The corpus tells TokenStream which source collection is eligible for the request. Policies can restrict which corpora a pipeline may use and can provide a default corpus when the client does not specify one.
+
+Use one corpus for one coherent retrieval scope. Mixing unrelated domains into one corpus makes results harder to filter, cite, and evaluate.
+
+## Filters
+
+Filters narrow retrieval by metadata. A retrieval profile can define default filters and allowed filter fields. Corpus config can override profile defaults, and request filters are applied last.
+
+Common filter fields depend on the processor and source metadata. Repository-style corpora often use fields such as `path`, `language`, `source_kind`, `commit_sha`, `symbol`, `start_line`, and `end_line`.
+
+<Note>
+When `strict_filters` is enabled, unsupported filters should be rejected instead of silently ignored. Use this for client contracts where filter mistakes would create misleading answers.
+</Note>
+
+## Citations
+
+Citation quality depends on ingestion metadata. For source-backed answers, configure citation fields that let users inspect the underlying source. Useful citation fields include:
+
+- source ID
+- source version or content hash
+- file path or URL
+- line range
+- page or section, when available
+- commit SHA, when indexing repository snapshots
+
+TokenStream can return citation metadata, but the client application is responsible for displaying it clearly and deciding how much evidence is required before an answer is shown to a user.
+
+## Readiness
+
+Registering a source is not enough. A corpus is ready only after ingestion has completed and retrieval indexes exist for the active sources. Use readiness checks after creating sources, uploading files, or starting reingestion.
+
+## Evidence review
+
+Retrieval-backed answers still need review rules. Treat low-confidence, missing-citation, or contradictory results as evidence gaps. A good client workflow should either ask for clarification, show a warning, or route the answer to human review instead of pretending every retrieved result is complete.
+
+<Warning>
+Generated or retrieved context can be stale if the corpus was not reingested after source changes. Reingest changed sources and verify corpus readiness before relying on retrieval in production workflows.
+</Warning>

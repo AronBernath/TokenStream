@@ -1,0 +1,94 @@
+[
+  {
+    "name": "openai",
+    "type": "openai_compat",
+    "base_url": "https://api.openai.com/v1",
+    "require_api_key": true,
+    "default_model": "gpt-5.5",
+    "models": ["gpt-5.4-mini", "gpt-5.4", "gpt-5.5"],
+    "capabilities": {
+      "tools": true,
+      "json_schema": true,
+      "streaming": true,
+      "chunking": true,
+      "max_context_window": 256000,
+      "default_context_window": 128000
+    },
+    "client_controls": {
+      "temperature": true,
+      "max_tokens": true,
+      "context_length": false,
+      "context_length_param": null
+    },
+    "secret_ref": "env://OPENAI_API_KEY",
+    "secret_source_type": "env"
+  },
+  {
+    "name": "deepseek",
+    "type": "openai_compat",
+    "base_url": "https://api.deepseek.com",
+    "require_api_key": true,
+    "default_model": "deepseek-v4-pro",
+    "models": ["deepseek-v4-pro", "deepseek-v4-flash"],
+    "capabilities": {
+      "tools": true,
+      "json_schema": true,
+      "streaming": true,
+      "chunking": true,
+      "max_context_window": 128000,
+      "default_context_window": 64000
+    },
+    "client_controls": {
+      "temperature": true,
+      "max_tokens": true,
+      "context_length": false,
+      "context_length_param": null
+    },
+    "secret_ref": "env://DEEPSEEK_API_KEY",
+    "secret_source_type": "env"
+  },
+  {
+    "name": "local-ollama",
+    "type": "ollama",
+    "base_url": "http://localhost:11434",
+    "require_api_key": false,
+    "default_model": "dolphin-llama3:70b",
+    "models": ["dolphin-llama3:70b"],
+    "capabilities": {
+      "tools": false,
+      "json_schema": true,
+      "streaming": false,
+      "chunking": false,
+      "max_context_window": 30000,
+      "default_context_window": 8192
+    },
+    "client_controls": {
+      "temperature": true,
+      "max_tokens": true,
+      "context_length": true,
+      "context_length_param": "num_ctx"
+    }
+  },
+  {
+    "name": "local-ollama-lite",
+    "type": "ollama",
+    "base_url": "http://localhost:11434",
+    "require_api_key": false,
+    "default_model": "dolphin-llama3:70b",
+    "models": ["dolphin-llama3:70b"],
+    "capabilities": {
+      "tools": false,
+      "json_schema": false,
+      "streaming": false,
+      "chunking": false,
+      "max_context_window": 8192,
+      "default_context_window": 8192
+    },
+    "client_controls": {
+      "temperature": true,
+      "max_tokens": true,
+      "context_length": true,
+      "context_length_param": "num_ctx"
+    }
+  }
+]

@@ -1,0 +1,263 @@
+---
+title: "API Reference"
+description: "Summarize source-backed public API endpoints, authentication expectations, request and response shapes."
+---
+
+# API Reference
+
+TokenStream exposes three runtime API surfaces behind your application and operations workflows. Most client applications integrate with `orchestrator-api`. `retrieval-api` is a lower-level retrieval boundary intended for trusted internal callers. The management API is served by `dev-ui` with the embedded `config_auth` package and is used by administrators and service accounts.
+
+Use these checked-in OpenAPI contracts as the schema authority for integration work:
+
+- `docs/openapi_orchestrator_api.yaml`
+- `docs/openapi_retrieval_api.yaml`
+- `docs/openapi_management_api.yaml`
+
+<Note>
+The OpenAPI contracts are the preferred source for exact request and response schemas. Use them alongside this page when generating client types, validating payloads, or defining integration tests.
+</Note>
+
+## Endpoint index
+
+| Surface | Method and path | Purpose |
+| --- | --- | --- |
+| Orchestrator API | `GET /health` | Liveness probe |
+| Orchestrator API | `GET /v1/models` | OpenAI-style model discovery |
+| Orchestrator API | `POST /v1/chat/completions` | OpenAI-compatible chat completion with provider routing and policy enforcement |
+| Orchestrator API | `POST /v1/rag/query` | Deterministic structured retrieval through the orchestrator |
+| Orchestrator API | `POST /v1/rag/lookup` | Deterministic lexical/exact lookup through the orchestrator |
+| Retrieval API | `GET /health` | Liveness probe |
+| Retrieval API | `POST /v1/query` | Corpus-scoped hybrid retrieval |
+| Retrieval API | `POST /v1/lookup` | Lexical/exact lookup without dense retrieval |
+| Retrieval API | `GET /corpora` | Corpus discovery for trusted internal callers |
+| Management API | `/v1/management/*` | Provider, policy, key, user, corpus, source, ingestion, processor, retrieval profile, and settings management |
+
+### Local server defaults
+
+| Runtime surface | Service/container | Local default from available sources |
+| --- | --- | --- |
+| Orchestrator API | `orchestrator-api` | `http://localhost:8004` |
+| Retrieval API | `retrieval-api` | `http://localhost:8003` in the OpenAPI contract; `http://localhost:8000` in the compose/README orientation |
+| Management API | `dev-ui` + embedded `config_auth` | `http://localhost:8010` in compose; `http://localhost:8000` in the OpenAPI example |
+
+<Warning>
+The available sources disagree on the local port for `retrieval-api` and the management OpenAPI example server. Confirm the exact host and port for your deployment before generating client configurations.
+</Warning>
+
+## Public, trusted, and internal boundaries
+
+<Note>
+For normal application integration, use `POST /v1/chat/completions` for model calls and `POST /v1/rag/query` for deterministic retrieval. Direct `retrieval-api` use is intended for trusted internal callers in most deployments.
+</Note>
+
+The following are operational or internal control-plane surfaces, not public application APIs:
+
+- `dev-ui` host-level browser routes and static assets
+- `config_auth` `/internal` routes used by workers and registry clients
+- `orchestrator-api` runtime reload and admin status routes
+- `ingestion-worker` job-claim and polling routes
+
+The `ingestion-worker` exposes `GET /health` and `POST /v1/dry-run/chunking` as operational/worker APIs. Its job-claim and polling endpoints should remain internal control-plane APIs.
+
+## Authentication and authorization
+
+### Human administrators
+
+Browser administrators authenticate against the `dev-ui`-hosted auth routes and receive a session cookie for `/v1/management/*` requests.
+
+The default cookie name is `config_auth_session`.
+
+Relevant runtime settings include:
+
+| Variable | Purpose |
+| --- | --- |
+| `CONFIG_AUTH_SESSION_COOKIE_NAME` | Session cookie name |
+| `CONFIG_AUTH_SESSION_COOKIE_SECURE` | Enables the secure cookie flag when set to `true`, `1`, or `yes` |
+| `CONFIG_AUTH_DEV_BOOTSTRAP_ADMIN` | Enables a local development bootstrap administrator |
+
+<Warning>
+The bootstrap `admin:admin` account is for local development only. Rotate or disable it before using TokenStream outside a trusted development environment.
+</Warning>
+
+### Machine API keys
+
+Service clients authenticate with `Authorization: Bearer <machine-key>`.
+
+Machine keys are created through the management API. A successful create response includes the plaintext key once. Runtime snapshots store a hash, not the plaintext key.
+
+Known machine-key scopes include:
+
+| Scope | Meaning |
+| --- | --- |
+| `chat:invoke` | Allow chat completion requests through the orchestrator |
+| `rag:query` | Allow structured retrieval requests through the orchestrator |
+| `corpora:read` | Allow read operations on corpus state |
+| `corpora:write` | Allow corpus lifecycle mutations and ingestion-job creation |
+
+A machine key may also be constrained by fields such as:
+
+- `default_pipeline_id`
+- `allowed_providers`
+- `allowed_models`
+- `max_input_tokens`
+- `max_output_tokens`
+- `max_total_tokens`
+- `max_top_k`
+
+<Note>
+Scope enforcement may differ between management routes and orchestrator routes. Review the specific operation in the OpenAPI contract, especially for RAG lookup and management write endpoints.
+</Note>
+
+### Orchestrator service-level authentication
+
+Service-level Bearer authentication on `orchestrator-api` is enforced when either `ORCHESTRATOR_API_KEYS_JSON` or `ORCHESTRATOR_API_KEY` is configured.
+
+The implementation for `POST /v1/rag/query` resolves its auth context with the `rag:query` scope. If no service-level key is configured, the OpenAPI contract allows unauthenticated requests for service-level Bearer security.
+
+### Internal service-to-service authentication
+
+Internal workers and internal registry clients use `CONFIG_AUTH_INTERNAL_TOKEN` when calling the embedded registry/auth package. This is separate from public application authentication and should not be exposed to end users.
+
+### Provider secrets
+
+Provider credentials use `secret_ref` values such as `env://OPENAI_API_KEY`, `docker://...`, or future vault-backed references. Plaintext provider secrets are not intended to be returned through the public API.
+
+## TokenStream API request fields
+
+### `POST /v1/chat/completions`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `model` | string | Yes | Plain model ID or `provider:model` such as `openai:gpt-5.5`. Empty or unresolved values can return `provider_resolution_failed`. |
+| `messages` | array | Yes | OpenAI-compatible chat messages. Minimum length of 1. |
+| `pipeline_id` | string | No | Optional pipeline identifier used to resolve tool, model, provider, and corpus policy. |
+| `task` | string | No | Optional task label such as `chunking`. Used for policy capability enforcement. |
+| `stream` | boolean | No | Enable streaming response behavior. Defaults to `false`. |
+| `temperature` | number | No | Optional sampling temperature. |
+| `max_tokens` | integer | No | Maximum output tokens. Must be greater than `0`. |
+| `context_length` | integer | No | Optional client-requested context window. Only honored when the selected provider allows it. |
+| `tools` | array | No | OpenAI-compatible client tools. Only honored for internal chunking requests. |
+| `tool_choice` | string or object | No | `none` to disable tools, `auto` for default behavior. |
+| `response_format` | object | No | Optional JSON or JSON-schema response format. |
+
+<Note>
+Regular client applications should rely on configured server tools and pipeline defaults rather than sending arbitrary client tools. Sending `tools` does not guarantee tool execution outside the supported internal flows.
+</Note>
+
+### `POST /v1/rag/query`
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `query` | string | Yes | Natural language query. Missing or empty returns `422` with code `invalid_request`. |
+| `pipeline_id` | string | No | Pipeline identifier used to resolve policy defaults and allowlists. |
+| `corpus_id` | string | No | Target corpus. If omitted, the pipeline or default corpus is resolved. |
+| `filters` | object | No | Metadata filters combined with pipeline default filters. Requested filters override defaults by key. |
+| `top_k` | integer | No | Number of chunks to return. Can be clamped by pipeline `max_top_k`. |
+
+A disallowed corpus, or a request with no corpus when the pipeline has no default, returns `422` with code `invalid_pipeline`.
+
+## Retrieval API request fields
+
+### `POST /v1/query`
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `query` | string | Yes | - | Natural language query string. |
+| `corpus_id` | string | Yes | - | Target corpus identifier. Retrieval never crosses corpora. |
+| `filters` | object | No | `{}` | Metadata filters applied consistently to vector and lexical retrieval. |
+| `top_k` | integer | No | `8` | Number of chunks to return. Must be greater than `0`. |
+
+### `POST /v1/lookup`
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `terms` | array of strings | Yes | - | Exact lexical terms, paths, symbols, or configuration keys. Maximum 50 terms. |
+| `corpus_id` | string | Yes | - | Target corpus identifier. Lookup never crosses corpora. |
+| `filters` | object | No | `{}` | Metadata filters applied to lexical lookup. |
+| `top_k` | integer | No | `5` | Maximum chunks per term. Must be greater than `0`. |
+| `max_results` | integer | No | `20` | Maximum chunks across all terms. Must be greater than `0`. |
+
+<Note>
+`POST /v1/lookup` is designed for exact lexical fields, endpoint paths, symbols, and configuration keys. It does not call the embedder or Qdrant.
+</Note>
+
+## Management API request fields
+
+The management API uses JSON request and response models for registry records. The most important shapes include:
+
+| Record | Selected fields |
+| --- | --- |
+| Provider | `name`, `type`, `base_url`, `require_api_key`, `default_model`, `models`, `capabilities`, `client_controls`, `secret_ref`, `secret_source_type` |
+| Policy | `pipeline_id`, `default_corpus_id`, `allowed_corpus_ids`, `default_filters`, `allowed_tools`, `allowed_providers`, `allowed_models`, `chunking`, `default_provider`, `default_model`, token limits, `max_top_k` |
+| Machine key entry | `key_id`, `key_hash`, `subject`, `scopes`, `default_pipeline_id`, `allowed_providers`, `allowed_models`, token limits, `max_top_k` |
+| RAG settings | `default_corpus_id`, `default_top_k`, `retrieval_api_url` |
+
+For ingestion-job creation, the management UI currently submits:
+
+- `pipeline_id`
+- `source_ids`
+- `force_reembed`
+- optional `configuration.chunking_model`
+
+## Response fields
+
+### Chat completion response
+
+`POST /v1/chat/completions` returns an OpenAI-compatible chat response. When structured JSON-schema validation is successful, the response may include a parsed message payload under `choices[0].message.parsed`.
+
+Use the orchestrator OpenAPI contract for the complete response schema and streaming `[DONE]` behavior.
+
+### Retrieval response
+
+`POST /v1/query` and `POST /v1/lookup` return a shared retrieval envelope:
+
+| Field | Description |
+| --- | --- |
+| `api_version` | Retrieval API version, currently `v1` |
+| `answer` | Retrieval-generated answer |
+| `citations` | Citation list |
+| `chunks` | Ranked `RetrievedChunk` objects |
+
+### `RetrievedChunk`
+
+Fields always present:
+
+| Field | Description |
+| --- | --- |
+| `chunk_id` | Stable chunk identifier |
+| `text` | Raw chunk text |
+| `score` | Retrieval score; higher is more relevant |
+| `doc_id` | Source document identifier |
+| `doc_type` | Document type |
+| `source_url` | Canonical source URL for citations |
+
+Fields present when available:
+
+| Field | Description |
+| --- | --- |
+| `section_id` | Section or article identifier |
+| `title` | Document or section title |
+| `tags` | Tag list |
+| `version_date` | Version date |
+| `metadata` | Additional metadata object |
+
+<Note>
+Citations and chunk payloads are designed to travel cleanly across the retrieval and orchestrator boundary without losing source traceability.
+</Note>
+
+## Error behavior
+
+TokenStream APIs use a structured error envelope when structured errors are returned.
+
+Example for unknown corpus:
+
+```json
+{
+"error": {
+"code": "corpus_not_found",
+"message": "Unknown corpus_id",
+"details": {
+"corpus_id": "..."
+}
+}
+}

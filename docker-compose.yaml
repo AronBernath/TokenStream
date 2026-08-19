@@ -1,0 +1,224 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  tei-embedder:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8.3
+    environment:
+      - MODEL_ID=intfloat/multilingual-e5-small
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_ENDPOINT=https://huggingface.co
+      - NO_PROXY=localhost,127.0.0.1,qdrant,tei-embedder
+      - AUTO_TRUNCATE=true
+      - TOKENIZATION_WORKERS=1
+      - MAX_BATCH_TOKENS=4096
+      - MAX_CLIENT_BATCH_SIZE=8
+    ports:
+      - "8080:80"
+    volumes:
+      - tei_cache:/data
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # (Optional later) reranker
+  # reranker:
+  #   image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.5
+  #   environment:
+  #     - MODEL_ID=BAAI/bge-reranker-base
+  #   ports:
+  #     - "8082:80"
+
+  dev-ui:
+    image: tokenstream/dev-ui:latest
+    build:
+      context: .
+      dockerfile: services/dev-ui/Dockerfile
+    ports:
+      - "8010:8010"
+    environment:
+      - ORCHESTRATOR_API_URL=http://orchestrator-api:8004
+      - CONFIG_AUTH_DB_PATH=/data/config-auth/config_auth.db
+      - CONFIG_AUTH_RUNTIME_DIR=/runtime
+      - CONFIG_AUTH_BOOTSTRAP_PROVIDERS_PATH=/bootstrap/providers.json
+      - CONFIG_AUTH_BOOTSTRAP_POLICIES_PATH=/bootstrap/policies.json
+      - CONFIG_AUTH_DEV_BOOTSTRAP_ADMIN=true
+      - CONFIG_AUTH_INTERNAL_TOKEN=${CONFIG_AUTH_INTERNAL_TOKEN}
+      - RAG_OBJECT_STORAGE_ENDPOINT=minio:9000
+      - RAG_OBJECT_STORAGE_ACCESS_KEY=${MINIO_ROOT_USER}
+      - RAG_OBJECT_STORAGE_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - RAG_OBJECT_STORAGE_BUCKET=${RAG_OBJECT_STORAGE_BUCKET:-rag-sources}
+      - RAG_OBJECT_STORAGE_SECURE=false
+      - ORCHESTRATOR_RELOAD_URL=http://orchestrator-api:8004/v1/internal/reload
+      - ORCHESTRATOR_RELOAD_TOKEN=${ORCHESTRATOR_RELOAD_TOKEN}
+      - INGESTION_WORKER_URL=http://ingestion-worker:8002
+      - DEFAULT_ENVIRONMENT=${DEFAULT_ENVIRONMENT:-default-env}
+      - DEFAULT_TENANT_ID=${DEFAULT_TENANT_ID:-default-tenant}
+    volumes:
+      - config_auth_data:/data/config-auth
+      - orchestrator_runtime_state:/runtime
+      - ./providers.json:/bootstrap/providers.json:ro
+      - ./policies.json:/bootstrap/policies.json:ro
+    depends_on:
+      - minio
+
+  retrieval-api:
+    image: tokenstream/retrieval-api:latest
+    build:
+      context: .
+      dockerfile: services/retrieval_api/Dockerfile
+      target: runtime
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - EMBEDDER_URL=http://tei-embedder:80
+      - LEXICAL_INDEX_DIR=/data/lex
+      - REGISTRY_INTERNAL_URL=http://dev-ui:8010/internal
+      - RETRIEVAL_PROFILE_REGISTRY_PATH=/runtime/retrieval_profiles.json
+      - RETRIEVAL_PROFILE_REGISTRY_URL=http://dev-ui:8010/internal/retrieval-profiles
+      - CONFIG_AUTH_INTERNAL_TOKEN=${CONFIG_AUTH_INTERNAL_TOKEN}
+      - DEFAULT_ENVIRONMENT=${DEFAULT_ENVIRONMENT:-default-env}
+      - DEFAULT_TENANT_ID=${DEFAULT_TENANT_ID:-default-tenant}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+      - orchestrator_runtime_state:/runtime:ro
+    depends_on:
+      - qdrant
+      - tei-embedder
+
+
+  ingestion-worker:
+    image: tokenstream/ingestion-worker:latest
+    build:
+      context: .
+      dockerfile: services/ingestion_worker/Dockerfile
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - EMBEDDER_URL=http://tei-embedder:80
+      - DATA_DIR=/data
+      - LEXICAL_INDEX_DIR=/data/lex
+      - ORCHESTRATOR_API_URL=http://orchestrator-api:8004
+      - ORCHESTRATOR_API_KEY=${ORCHESTRATOR_API_KEY}
+      - CHUNKING_LLM_MODEL=deepseek:deepseek-chat
+      - RAG_OBJECT_STORAGE_ENDPOINT=minio:9000
+      - RAG_OBJECT_STORAGE_ACCESS_KEY=${MINIO_ROOT_USER}
+      - RAG_OBJECT_STORAGE_SECRET_KEY=${MINIO_ROOT_PASSWORD}
+      - RAG_OBJECT_STORAGE_BUCKET=${RAG_OBJECT_STORAGE_BUCKET:-rag-sources}
+      - RAG_OBJECT_STORAGE_SECURE=false
+      - REGISTRY_INTERNAL_URL=http://dev-ui:8010/internal
+      - PROCESSOR_REGISTRY_PATH=/runtime/processors.json
+      - PROCESSOR_REGISTRY_URL=http://dev-ui:8010/internal/processors
+      - CONFIG_AUTH_INTERNAL_TOKEN=${CONFIG_AUTH_INTERNAL_TOKEN}
+      - DEFAULT_ENVIRONMENT=${DEFAULT_ENVIRONMENT:-default-env}
+      - DEFAULT_TENANT_ID=${DEFAULT_TENANT_ID:-default-tenant}
+    volumes:
+      - ./data:/data
+      - orchestrator_runtime_state:/runtime:ro
+    depends_on:
+      - qdrant
+      - tei-embedder
+      - minio
+
+  orchestrator-api:
+    image: tokenstream/orchestrator-api:latest
+    build:
+      context: .
+      dockerfile: services/orchestrator_api/Dockerfile
+    ports:
+      - "8004:8004"
+    volumes:
+      - orchestrator_runtime_state:/runtime
+    environment:
+      ORCHESTRATOR_API_KEY: ${ORCHESTRATOR_API_KEY}
+      ORCHESTRATOR_RELOAD_TOKEN: ${ORCHESTRATOR_RELOAD_TOKEN}
+      LLM_PROVIDERS_PATH: /runtime/providers.json
+      ORCHESTRATOR_API_KEYS_PATH: /runtime/api_keys.json
+      ORCHESTRATOR_PIPELINE_REGISTRY_PATH: /runtime/policies.json
+      RAG_SETTINGS_PATH: /runtime/rag_settings.json
+      MCP_SERVERS_PATH: /runtime/mcp_servers.json
+      MCP_SETTINGS_PATH: /runtime/mcp_settings.json
+      LLM_PROVIDER: deepseek
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: https://api.deepseek.com
+      DEEPSEEK_MODEL: deepseek-v4-pro
+      DEEPSEEK_MODELS: deepseek-v4-pro,deepseek-v4-flash
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: gpt-5.5
+      OPENAI_MODELS: gpt-5.4-mini,gpt-5.5
+      DEFAULT_MAX_TOKENS: "8192"
+      # Optional: Declarative LLM Providers (JSON Array)
+      # LLM_PROVIDERS_JSON: >-
+      #   [
+      #     {"name": "ollama", "type": "ollama", "base_url": "http://ollama:11434", "require_api_key": false, "default_model": "llama3.1:8b", "models": ["llama3.1:8b"], "capabilities": {"tools": false, "json_schema": false, "streaming": false, "max_context_window": 8192, "default_context_window": 8192}, "client_controls": {"temperature": true, "max_tokens": true, "context_length": true, "context_length_param": null}},
+      #     {"name": "vllm", "type": "openai_compat", "base_url": "http://vllm:8000/v1", "require_api_key": false, "default_model": "meta-llama/Llama-3.1-8B-Instruct", "models": ["meta-llama/Llama-3.1-8B-Instruct"], "capabilities": {"tools": false, "json_schema": false, "streaming": true, "max_context_window": 32768, "default_context_window": 32768}}
+      #   ]
+      # Optional: API Keys Registry (JSON Array)
+      # ORCHESTRATOR_API_KEYS_JSON: >-
+      #   [
+      #     {"key_id": "dev-key", "key_hash": "...", "subject": "developer", "scopes": ["models:list", "chat:invoke", "rag:query", "tools:use"]}
+      #   ]
+      LOCAL_LLM_BASE_URL: ${OLLAMA_BASE_URL:-}
+      RETRIEVAL_API_URL: http://retrieval-api:8000
+      DEFAULT_ENVIRONMENT: ${DEFAULT_ENVIRONMENT:-default-env}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-default-tenant}
+      DEFAULT_TOP_K: 8
+      # Optional MCP server registry (JSON array). Tools will be namespaced by server name.
+      MCP_SERVERS: ${MCP_SERVERS:-[]}
+      MCP_TIMEOUT_S: "45"
+      MCP_MAX_TOOL_ROUNDS: "40"
+      # Set to "true" to fail startup if any MCP server is unavailable
+      MCP_STRICT: "false"
+      LLM_TIMEOUT_S: "180"
+      LLM_MAX_RETRIES: "0"          # or "1" if you want one retry
+      LLM_RETRY_BACKOFF_S: "0.8"
+      LOG_LEVEL: "DEBUG"            # temporarily, to see transport error detail
+      LOG_COLOR: "1"
+    depends_on:
+      retrieval-api:
+        condition: service_started
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    ports:
+      - "30000:8080"
+    environment:
+      - WEBUI_AUTH=true
+      - WEBUI_ADMIN_EMAIL=${WEBUI_ADMIN_EMAIL:-admin@local}
+      - WEBUI_ADMIN_PASSWORD=${WEBUI_ADMIN_PASSWORD}
+      - WEBUI_ADMIN_NAME=${WEBUI_ADMIN_NAME:-Admin}
+      - ENABLE_SIGNUP=false
+      - OPENAI_API_BASE_URL=http://orchestrator-api:8004/v1
+      - OPENAI_API_KEY=${ORCHESTRATOR_API_KEY}
+      - ENABLE_PERSISTENT_CONFIG=false
+    volumes:
+      - open_webui_data_bootstrap:/app/backend/data
+    depends_on:
+      - orchestrator-api
+
+volumes:
+  qdrant_data:
+  tei_cache:
+  minio_data:
+  open_webui_data:
+  open_webui_data_bootstrap:
+  config_auth_data:
+  orchestrator_runtime_state:

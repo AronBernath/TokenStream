@@ -1,0 +1,195 @@
+---
+title: "Operate TokenStream"
+description: "Document operational workflows for running, observing, reloading, backing up, and recovering TokenStream."
+---
+
+# Operate TokenStream
+
+This page describes how to verify a TokenStream deployment is healthy, maintain corpora and ingested sources, apply configuration changes safely, and respond to common runtime failures.
+
+<Note>
+TokenStream is the public product name. The runtime services and checked-in configuration still use `orchestrator-api`, `retrieval-api`, `ingestion-worker`, `dev-ui`, and `config_auth`. These names are retained only where an operator needs to recognize the actual service, endpoint, or setting.
+</Note>
+
+## Operator prerequisites
+
+- Access to the deployed service endpoints or container network.
+- In a Compose-style runtime, the relevant service names include `orchestrator-api`, `retrieval-api`, `ingestion-worker`, `dev-ui`, `qdrant`, `minio`, and `tei-embedder`.
+- For management operations, authenticate through the browser admin session cookie issued by `dev-ui`, or use a machine key sent as `Authorization: Bearer <machine-key>`.
+- Machine keys must have the scope that matches the operation:
+- `corpora:read` for polling corpus readiness or reading ingestion jobs.
+- `corpora:write` for creating ingestion jobs, cancelling jobs, adding or removing sources, and purging indexed content.
+- Internal service configuration may require `CONFIG_AUTH_INTERNAL_TOKEN`, `REGISTRY_INTERNAL_URL`, `ORCHESTRATOR_RELOAD_URL`, and `ORCHESTRATOR_RELOAD_TOKEN` to be set correctly.
+
+## Routine checks
+
+### Check service liveness
+
+| Service | Endpoint | Expected result |
+| --- | --- | --- |
+| `orchestrator-api` | `GET /health` | Returns `200` with `{"ok": true}`. |
+| `orchestrator-api` | `GET /v1/health` | Returns `{"ok": true}`; hidden from the OpenAPI schema but available as an alternate probe. |
+| `retrieval-api` | `GET /health` | Returns `200` with `{"ok": true}`. |
+| `ingestion-worker` | `GET /health` | Should be reachable. The source does not define the full response body in the available evidence; confirm active job behavior through worker logs as well. |
+
+### Check corpus and retrieval readiness
+
+- Use `GET /v1/management/corpora/{corpus_id}/readiness` to check whether a specific corpus is ready for retrieval.
+- Use `GET /v1/management/ingestion-jobs` to list recent ingestion jobs.
+- Use `GET /v1/management/ingestion-jobs/{job_id}` to inspect one ingestion job.
+- For trusted internal retrieval checks, use `GET /corpora` on `retrieval-api` to see which corpus identifiers are discoverable by retrieval.
+
+<Warning>
+Service liveness is not the same as retrieval readiness. A corpus can exist in the registry while still having no usable chunks because ingestion failed or indexes are missing.
+</Warning>
+
+### Expected routine-check outcome
+
+- Liveness endpoints return `200` or `{"ok": true}`.
+- The target corpus appears in corpus discovery and readiness checks.
+- The most recent ingestion job is in a completed state, not failed or cancelled.
+- Retrieval checks return chunks for a known ingested query, or an empty chunk array without a service error.
+
+## Maintenance tasks
+
+### Apply configuration changes and reload runtime state
+
+Management changes to providers, policies, processors, retrieval profiles, API keys, and RAG settings are persisted and exported as runtime snapshots used by the runtime services.
+
+- `dev-ui` uses `ORCHESTRATOR_RELOAD_URL` to trigger an orchestrator reload after configuration changes.
+- In the supplied Compose layout, the reload URL is `http://orchestrator-api:8004/v1/internal/reload`.
+- Use `ORCHESTRATOR_RELOAD_TOKEN` when the orchestrator requires an internal reload token.
+- After saving configuration, verify the affected service remains healthy and that the new setting is actually applied.
+
+<Warning>
+Runtime reloads can succeed partially when snapshots are missing or malformed. Do not rely only on a successful management write; verify that providers, policies, API keys, and RAG settings loaded as expected.
+</Warning>
+
+### Export or import a corpus registry
+
+- Use `GET /v1/management/corpora/{corpus_id}/registry-export` to export a config-auth corpus registry bundle for migration.
+- Object-backed sources keep their existing `s3://` object URIs in the export.
+- Generated indexes are not included in the registry bundle.
+- Use `POST /v1/management/corpora/registry-import` to import a bundle into another application instance.
+- Re-ingest the corpus after import to rebuild Qdrant and lexical indexes.
+
+### Delete or purge a source
+
+`DELETE /v1/management/corpora/{corpus_id}/sources/{source_id}` deletes a source from a corpus.
+
+- By default, the management API soft-deletes the source record.
+- With `purge=true`, it also asks the ingestion worker to remove indexed SQLite, FTS, and Qdrant artifacts for that source before deleting the registry record.
+- A missing corpus or source returns `404`.
+- The proxy returns `502` when source purge fails in the ingestion worker.
+
+### Cancel an ingestion job
+
+`POST /v1/management/ingestion-jobs/{job_id}/cancel` cancels an existing job.
+
+- Requires the `corpora:write` scope.
+- A missing job returns `404`.
+- After cancellation, inspect the job through `GET /v1/management/ingestion-jobs/{job_id}` to confirm the reported status.
+
+### Re-ingest after import, source changes, or stale chunks
+
+Create a new ingestion job with:
+
+`POST /v1/management/corpora/{corpus_id}/ingestion-jobs`
+
+Useful request behavior includes:
+
+- Set `source_ids` to re-ingest selected sources.
+- Set `source_ids` to `null` or target the whole corpus when the job should cover all sources.
+- Set `force_reembed` to `true` to force new embeddings even when the worker would otherwise skip unchanged content.
+
+Use re-ingestion when:
+
+- Sources changed upstream.
+- The processor or metadata contract changed.
+- Retrieval results refer to stale chunks.
+- A registry import has not yet been followed by index rebuild.
+- A targeted ingestion failed and only the affected sources need to be retried.
+
+## Failure handling
+
+### Unauthorized requests
+
+- Look for `401` on orchestrator, retrieval, or management calls.
+- The orchestrator can enforce service-level bearer authentication when `ORCHESTRATOR_API_KEYS_JSON` or `ORCHESTRATOR_API_KEY` is configured.
+- Confirm the request includes `Authorization: Bearer <key>` if required.
+- For management endpoints, confirm whether the operation requires a browser admin session or a machine key.
+- Confirm the machine key has the required scope, such as `rag:query`, `corpora:read`, or `corpora:write`.
+
+### Corpus not found or not allowed
+
+- Retrieval returns `404 corpus_not_found` when the corpus identifier is unknown.
+- The orchestrator returns `422 invalid_pipeline` when a requested corpus is outside the resolved pipeline allowlist.
+- Check the allowed corpus IDs for the pipeline.
+- If the request omitted a corpus, confirm the pipeline or RAG settings define a default corpus.
+- If the corpus was imported, verify that import completed and that a re-ingestion job created retrieval artifacts.
+
+### Provider errors
+
+- The orchestrator may return a provider error code and retry transient upstream statuses.
+- Retryable upstream conditions include `408`, `409`, `429`, `500`, `502`, `503`, and `504`.
+- Some `400`, `404`, `413`, and `422` failures may be retried without tools when the upstream failure appears to be caused by tool schema or tool payload size.
+- Check provider `base_url`, `secret_ref`, models, and capabilities.
+- Check pipeline `allowed_providers`, `allowed_models`, `default_provider`, and `default_model`.
+- A missing or empty resolved model can return `provider_resolution_failed`.
+
+### Retrieval backend failures
+
+- Retrieval failures can originate from registry lookup, missing indexes, Qdrant, SQLite, or embedder errors.
+- If the orchestrator reports that the retrieval API is unreachable, check `retrieval-api` health first.
+- If the retrieval API returns an upstream error or a non-JSON response, inspect the retrieval logs and service health.
+- Check the orchestrator setting that points to the retrieval API, such as `ORCHESTRATOR_API_URL` or the orchestrator-side `retrieval_api_url` setting used for RAG forwarding.
+
+### Ingestion job failed, cancelled, or produced no chunks
+
+- Inspect the job with `GET /v1/management/ingestion-jobs/{job_id}`.
+- Look for a `failed` job error message or a `cancelled` status.
+- If all matched sources fail, the worker reports the job as failed.
+- If no chunks were produced and no sources were skipped unchanged, the worker also reports failure.
+- Check source reachability, object storage configuration, processor selection, chunking configuration, and embedding service health.
+- Correct the source or configuration, then create a new ingestion job.
+
+### Retrieval returns empty chunks
+
+- An empty `chunks` array with a `200` response usually means the query completed but nothing matched.
+- Review the effective filters.
+- Confirm the target corpus was ingested successfully and produced chunks.
+- Confirm the filter keys match the metadata keys emitted by the processor.
+- Use a lookup or retrieval query with a real path, symbol, identifier, or known phrase from the corpus to isolate whether the issue is query-specific or corpus-wide.
+
+### Stale source chunks
+
+- Re-ingest the affected source or the whole corpus.
+- Set `force_reembed` to `true` when embeddings must be rebuilt for unchanged content.
+- If a source should no longer be indexed, delete it with `purge=true` and confirm the purge does not return `502`.
+
+### Misconfigured policy or machine key limits
+
+- A request can fail because the policy does not allow the requested corpus, provider, or model.
+- A machine key can also restrict providers and models independently of the pipeline.
+- Check `allowed_corpus_ids`, `allowed_providers`, and `allowed_models` on the pipeline.
+- Check key-level provider and model allowlists if the bearer key was created with restrictions.
+- After updating policy or key settings, trigger or confirm the runtime reload and retry.
+
+## Common mistakes
+
+- Treating service liveness as proof that a corpus is ready.
+- Checking only the management write and not verifying that the runtime snapshot reload took effect.
+- Importing a corpus registry bundle and expecting retrieval indexes to already exist.
+- Purging sources without confirming the worker accepted the purge request.
+- Re-ingesting without `force_reembed` when stale output is caused by unchanged source bytes but a processor or retrieval profile changed.
+
+## Evidence gaps
+
+These areas are not fully established by the supplied evidence and should be confirmed in the target deployment before relying on them in production runbooks.
+
+- The exact `ingestion-worker` health response body is not specified.
+- The complete corpus readiness response schema is not fully captured.
+- Structured runtime reload result fields are not fully specified. Sources confirm that partial reloads are possible when snapshots are missing or malformed.
+- Public admin UI labels and navigation are not proven. Prefer API paths and service names in operator runbooks.
+- Log aggregation, alerting, metrics dashboards, backup and restore procedures, and data-loss recovery for Qdrant, MinIO, and SQLite are not established by the supplied evidence.
+- Host port mappings and service topologies must be taken from the deployment manifest for the specific environment; some supplied service and OpenAPI examples use different host ports.

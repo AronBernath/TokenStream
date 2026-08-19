@@ -1,0 +1,619 @@
+openapi: 3.1.0
+info:
+  title: Management API
+  version: 1.0.0
+  summary: Management API for TokenStream.
+  description: |
+    This API provides endpoints for managing corpora, sources, ingestion jobs,
+    providers, policies, users, API keys, and settings.
+
+    Human administrators authenticate with the config-auth session cookie.
+    Service clients may authenticate with `Authorization: Bearer <machine-key>`.
+    Machine-key scopes are enforced as management permissions, for example
+    `corpora:write` for corpus lifecycle mutations and `corpora:read` for
+    polling corpus state.
+servers:
+  - url: http://localhost:8000
+    description: Local development default
+tags:
+  - name: Corpora
+    description: Corpus management.
+  - name: Sources
+    description: Corpus source management.
+  - name: Ingestion Jobs
+    description: Ingestion job management.
+  - name: Processors
+    description: Top-level ingestion processor registry.
+  - name: Retrieval Profiles
+    description: Top-level retrieval behavior registry.
+  - name: Settings
+    description: System settings.
+paths:
+  /v1/management/processors:
+    get:
+      tags: [Processors]
+      summary: List ingestion processors
+      responses:
+        '200':
+          description: OK
+    put:
+      tags: [Processors]
+      summary: Replace ingestion processor registry
+      description: Replaces the top-level processor registry. Clients should GET, merge their records, then PUT the full list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProcessorRecord'
+      responses:
+        '200':
+          description: OK
+
+  /v1/management/retrieval-profiles:
+    get:
+      tags: [Retrieval Profiles]
+      summary: List retrieval profiles
+      responses:
+        '200':
+          description: OK
+    put:
+      tags: [Retrieval Profiles]
+      summary: Replace retrieval profile registry
+      description: Replaces the top-level retrieval profile registry. Clients should GET, merge their records, then PUT the full list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/RetrievalProfileRecord'
+      responses:
+        '200':
+          description: OK
+
+  /v1/management/corpora:
+    get:
+      tags: [Corpora]
+      summary: List corpora
+      responses:
+        '200':
+          description: OK
+    post:
+      tags: [Corpora]
+      summary: Create corpus
+      description: Creates a new corpus and returns `400` when the active corpus id already exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorpusCreateRequest'
+      responses:
+        '200':
+          description: OK
+
+  /v1/management/corpora/{corpus_id}/ensure:
+    put:
+      tags: [Corpora]
+      summary: Ensure corpus exists
+      description: Idempotently creates a corpus when missing and otherwise returns the existing active corpus unchanged.
+      security:
+        - ManagementBearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorpusEnsureRequest'
+      responses:
+        '200':
+          description: Existing or newly-created corpus detail.
+        '403':
+          description: Missing `corpora:write`.
+
+  /v1/management/corpora/{corpus_id}/readiness:
+    get:
+      tags: [Corpora]
+      summary: Check corpus retrieval readiness
+      description: Reports whether a corpus has active sources and a completed ingestion job that is newer than the latest source update.
+      security:
+        - ManagementBearerAuth: []
+      responses:
+        '200':
+          description: Readiness state for polling clients.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorpusReadiness'
+        '403':
+          description: Missing `corpora:read`.
+
+  /v1/management/corpora/{corpus_id}/sources:
+    get:
+      tags: [Sources]
+      summary: List sources for a corpus
+      responses:
+        '200':
+          description: OK
+    post:
+      tags: [Sources]
+      summary: Create a source for a corpus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorpusSourceCreateRequest'
+      responses:
+        '200':
+          description: OK
+
+  /v1/management/corpora/{corpus_id}/sources/upload:
+    post:
+      tags: [Sources]
+      summary: Upload a file source for a corpus
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                source_id:
+                  type: string
+                format:
+                  type: string
+                  enum: [html, xlsx, pdf, yaml, markdown, md, text, json, jsonl, zip, tar, binary]
+                title:
+                  type: string
+                language:
+                  type: string
+                doc_type:
+                  type: string
+                tags_json:
+                  type: string
+                  description: JSON array or comma-separated tags.
+                configuration_json:
+                  type: string
+                  description: JSON object persisted as source configuration.
+                processor_id:
+                  type: string
+                  description: Optional source-level ingestion processor override.
+                processor_config_json:
+                  type: string
+                  description: JSON object persisted as source processor configuration.
+                metadata_json:
+                  type: string
+                  description: JSON object persisted as source metadata.
+                upload:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: OK
+
+  /v1/management/corpora/{corpus_id}/sources/{source_id}:
+    delete:
+      tags: [Sources]
+      summary: Delete a source from a corpus
+      description: Soft-deletes the source record. When `purge=true`, the management API also asks the ingestion worker to remove indexed SQLite/FTS/Qdrant artifacts for that source before deleting the registry record.
+      parameters:
+        - name: corpus_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: source_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: purge
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Also remove indexed retrieval artifacts for this source.
+      responses:
+        '200':
+          description: Deleted source status and optional purge stats.
+        '404':
+          description: Corpus or source not found.
+        '502':
+          description: Source purge failed in the ingestion worker.
+
+  /v1/management/corpora/{corpus_id}/registry-export:
+    get:
+      tags: [Corpora]
+      summary: Export one corpus registry bundle
+      description: Exports config-auth corpus metadata and source records for migration between application instances. Object-backed sources keep their existing `s3://` object URIs; generated indexes are not included.
+      responses:
+        '200':
+          description: Registry bundle
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorpusRegistryBundle'
+
+  /v1/management/corpora/registry-import:
+    post:
+      tags: [Corpora]
+      summary: Import one corpus registry bundle
+      description: Imports a config-auth corpus registry bundle. Re-ingest the corpus after import to rebuild Qdrant and lexical indexes.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorpusRegistryImportRequest'
+      responses:
+        '200':
+          description: Import result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorpusRegistryImportResult'
+
+  /v1/management/corpora/{corpus_id}/ingestion-jobs:
+    post:
+      tags: [Ingestion Jobs]
+      summary: Create an ingestion job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IngestionJobCreateRequest'
+      responses:
+        '200':
+          description: OK
+
+  /v1/management/ingestion-jobs:
+    get:
+      tags: [Ingestion Jobs]
+      summary: List ingestion jobs
+      responses:
+        '200':
+          description: OK
+
+  /v1/management/ingestion-jobs/{job_id}:
+    get:
+      tags: [Ingestion Jobs]
+      summary: Get an ingestion job
+      responses:
+        '200':
+          description: OK
+
+  /v1/management/ingestion-jobs/{job_id}/cancel:
+    post:
+      tags: [Ingestion Jobs]
+      summary: Cancel an ingestion job
+      responses:
+        '200':
+          description: OK
+
+  /internal/ingestion-jobs/{job_id}/claim:
+    post:
+      tags: [Ingestion Jobs]
+      summary: Claim an ingestion job (internal)
+      responses:
+        '200':
+          description: OK
+
+  /internal/ingestion-jobs/{job_id}:
+    patch:
+      tags: [Ingestion Jobs]
+      summary: Update an ingestion job (internal)
+      responses:
+        '200':
+          description: OK
+
+  /internal/ingestion-jobs/{job_id}/heartbeat:
+    post:
+      tags: [Ingestion Jobs]
+      summary: Record an ingestion worker heartbeat (internal)
+      parameters:
+        - name: x-worker-id
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+
+components:
+  securitySchemes:
+    ManagementBearerAuth:
+      type: http
+      scheme: bearer
+      description: Machine API key created by `/v1/management/api-keys`; required scopes depend on the route.
+
+  schemas:
+    ProcessorRecord:
+      type: object
+      required: [processor_id]
+      properties:
+        processor_id:
+          type: string
+          pattern: '^[A-Za-z0-9._:-]+$'
+        type:
+          type: string
+          default: generic
+          description: Ingestion-worker-owned processor adapter type, such as `generic` or `structured_archive`.
+        name:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        config:
+          type: object
+          additionalProperties: true
+          description: Base adapter configuration merged before corpus, source, and job processor overrides.
+        enabled:
+          type: boolean
+          default: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    RetrievalProfileRecord:
+      type: object
+      required: [retrieval_profile_id]
+      properties:
+        retrieval_profile_id:
+          type: string
+          pattern: '^[A-Za-z0-9._:-]+$'
+        type:
+          type: string
+          default: hybrid
+          description: Retrieval-api-owned retrieval adapter type. The current built-in type is `hybrid`.
+        name:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        config:
+          type: object
+          additionalProperties: true
+          description: Base retrieval configuration merged before corpus retrieval_config overrides.
+        enabled:
+          type: boolean
+          default: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    CorpusCreateRequest:
+      type: object
+      required: [corpus_id]
+      properties:
+        corpus_id:
+          type: string
+          pattern: '^[A-Za-z0-9._:-]+$'
+        title:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        environment:
+          type: string
+          nullable: true
+        tenant_id:
+          type: string
+          nullable: true
+        chunking:
+          type: object
+          additionalProperties: true
+        index:
+          type: object
+          additionalProperties: true
+        processor_id:
+          type: string
+          nullable: true
+          description: Optional ingestion processor id. The worker resolves this through the top-level processor registry.
+        processor_config:
+          type: object
+          additionalProperties: true
+          description: Optional corpus-level processor configuration.
+        retrieval_profile_id:
+          type: string
+          nullable: true
+          description: Optional top-level retrieval profile id used as the base retrieval config for this corpus.
+        retrieval_config:
+          type: object
+          additionalProperties: true
+          description: Optional corpus-level retrieval behavior overrides.
+        metadata:
+          type: object
+          additionalProperties: true
+
+    CorpusEnsureRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        environment:
+          type: string
+          nullable: true
+        tenant_id:
+          type: string
+          nullable: true
+        chunking:
+          type: object
+          additionalProperties: true
+        index:
+          type: object
+          additionalProperties: true
+        processor_id:
+          type: string
+          nullable: true
+          description: Optional ingestion processor id. The worker resolves this through the top-level processor registry.
+        processor_config:
+          type: object
+          additionalProperties: true
+          description: Optional processor configuration merged below job-level overrides.
+        retrieval_profile_id:
+          type: string
+          nullable: true
+          description: Optional top-level retrieval profile id used as the base retrieval config for this corpus.
+        retrieval_config:
+          type: object
+          additionalProperties: true
+          description: Optional corpus-level retrieval behavior overrides.
+        metadata:
+          type: object
+          additionalProperties: true
+
+    CorpusReadiness:
+      type: object
+      required: [corpus_id, ready, status, source_count, reasons]
+      properties:
+        corpus_id:
+          type: string
+        ready:
+          type: boolean
+        status:
+          type: string
+          enum: [ready, pending, running, failed, not_ready]
+        source_count:
+          type: integer
+        latest_source_updated_at:
+          type: string
+          nullable: true
+        latest_completed_job_id:
+          type: string
+          nullable: true
+        latest_completed_job_updated_at:
+          type: string
+          nullable: true
+        latest_job_id:
+          type: string
+          nullable: true
+        latest_job_status:
+          type: string
+          nullable: true
+        reasons:
+          type: array
+          items:
+            type: string
+
+    CorpusSourceCreateRequest:
+      type: object
+      required: [source_id, type, format]
+      properties:
+        source_id:
+          type: string
+          pattern: '^[A-Za-z0-9._:-]+$'
+        type:
+          type: string
+          enum: [url, object]
+        format:
+          type: string
+          enum: [html, xlsx, pdf, yaml, markdown, md, text, json, jsonl, zip, tar, binary]
+        url:
+          type: string
+          format: uri
+        object_uri:
+          type: string
+          description: S3-compatible object URI, for example `s3://rag-sources/prod/default/product_docs/source/hash/file.pdf`.
+        content_type:
+          type: string
+          description: MIME type for an object-backed source.
+        configuration:
+          type: object
+          additionalProperties: true
+        processor_id:
+          type: string
+          nullable: true
+          description: Optional source-level ingestion processor override.
+        processor_config:
+          type: object
+          additionalProperties: true
+          description: Optional source-level processor configuration.
+        metadata:
+          type: object
+          additionalProperties: true
+
+    IngestionJobCreateRequest:
+      type: object
+      properties:
+        pipeline_id:
+          type: string
+          nullable: true
+        source_ids:
+          type: array
+          nullable: true
+          items:
+            type: string
+        force_reembed:
+          type: boolean
+          default: false
+        processor_id:
+          type: string
+          nullable: true
+          description: Optional job-level ingestion processor override.
+        processor_config:
+          type: object
+          additionalProperties: true
+          description: Optional job-level processor configuration merged last.
+        configuration:
+          type: object
+          additionalProperties: true
+
+    CorpusRegistryBundle:
+      type: object
+      required: [schema_version, corpus]
+      properties:
+        schema_version:
+          type: string
+          example: config-auth.corpus-registry.v1
+        exported_at:
+          type: string
+          nullable: true
+        corpus:
+          type: object
+          description: CorpusDetail payload including active source records.
+        notes:
+          type: array
+          items:
+            type: string
+
+    CorpusRegistryImportRequest:
+      type: object
+      required: [bundle]
+      properties:
+        bundle:
+          $ref: '#/components/schemas/CorpusRegistryBundle'
+        conflict_strategy:
+          type: string
+          enum: [fail, replace]
+          default: fail
+
+    CorpusRegistryImportResult:
+      type: object
+      required: [status, corpus_id]
+      properties:
+        status:
+          type: string
+          example: imported
+        corpus_id:
+          type: string
+        sources_imported:
+          type: integer
+        conflict_strategy:
+          type: string
+        notes:
+          type: array
+          items:
+            type: string

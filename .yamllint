@@ -1,0 +1,14 @@
+---
+extends: default
+
+ignore: |
+  .git/
+  data/
+  services/dev-ui/frontend/dist/
+  services/dev-ui/frontend/node_modules/
+
+rules:
+  comments-indentation: disable
+  document-start: disable
+  line-length: disable
+  truthy: disable

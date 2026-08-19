@@ -1,0 +1,104 @@
+---
+title: "Policies And Model Access"
+description: "Explain how TokenStream governs model access, provider selection, permissions, and policy outcomes."
+---
+
+# Policies And Model Access
+
+TokenStream routes model calls through an internal policy decision. A pipeline policy is a declarative record that controls which provider and model can serve a request, which corpus can provide context, which filters and tools are allowed, and which limits apply. This page explains that decision path and the fields an operator can configure.
+
+## Concept overview
+
+A policy is keyed by `pipeline_id`. A client request can select a policy by including `pipeline_id` on chat and retrieval requests. TokenStream uses the matching policy to:
+
+- Select a default provider and model when the caller does not supply one.
+- Restrict the request to allowed providers and models.
+- Resolve the corpus from the requested corpus or the policy default.
+- Reject corpora that are not in the policy allowlist.
+- Merge policy-level retrieval filters with caller-supplied filters.
+- Limit retrieval results and token usage.
+- Control which server tools are available, including the retrieval tool.
+
+Policies are generic runtime controls. They enforce request boundaries, but they do not inject application-specific behavior into a prompt or model call.
+
+## Decision flow
+
+<Steps>
+<Step title="Resolve a pipeline">
+The request includes an optional `pipeline_id`. TokenStream looks up the corresponding policy from the configured pipeline registry or runtime snapshot.
+</Step>
+
+<Step title="Resolve the corpus">
+If the request includes a corpus ID, TokenStream checks it against the policy `allowed_corpus_ids`. If the request omits a corpus ID, TokenStream uses the policy `default_corpus_id` when one is configured. If no corpus can be resolved or the requested corpus is not allowed, the request is rejected before retrieval.
+</Step>
+
+<Step title="Merge filters">
+TokenStream starts with the policy `default_filters` and overlays any filters provided in the request. Request filters override policy defaults for the same key.
+</Step>
+
+<Step title="Resolve the provider and model">
+A caller can send a plain model identifier such as `gpt-5.4-mini`, or a provider-qualified identifier such as `openai:gpt-5.4-mini`. TokenStream applies provider and model allowlists from the policy. If the request model is empty, TokenStream uses the policy `default_provider` and `default_model` when available.
+</Step>
+
+<Step title="Apply limits and tool controls">
+TokenStream applies policy and key-level limits such as `max_top_k`, token limits, and tool allowlists. The retrieval tool is exposed only when the selected provider supports tools and the policy allows the retrieval tool.
+</Step>
+</Steps>
+
+## Configuration reference
+
+The following table describes the pipeline policy fields that affect model access, provider selection, and request enforcement.
+
+| Field | Purpose | Default or omitted behavior |
+|---|---|---|
+| `pipeline_id` | Identifies the policy record. | Required on a policy record; request selection may omit it and rely on the configured default path. |
+| `default_corpus_id` | Corpus used when the request does not specify one. | `null`; if also missing from the request, the retrieval path rejects the request unless another configured default exists. |
+| `allowed_corpus_ids` | Corpus IDs that may be targeted by the policy. | `[]`; explicit requested corpora must be in this list. |
+| `default_filters` | Metadata filters merged into retrieval requests. | `{}`; request filters override keys in this map. |
+| `allowed_tools` | Server tools available under the policy. | `[]`; the retrieval tool is not exposed if it is not allowed. |
+| `allowed_providers` | Provider names permitted by the policy. | `null`; when omitted, the policy does not apply an allowlist. |
+| `allowed_models` | Model identifiers permitted by the policy. | `null`; when omitted, the policy does not apply a model allowlist. |
+| `default_provider` | Provider used when the request does not specify one. | `null`; no policy default provider is applied. |
+| `default_model` | Model used with the policy default provider. | `null`; no policy default model is applied. |
+| `max_input_tokens` | Optional input token cap. | `null`; not capped by this field. |
+| `max_output_tokens` | Optional output token cap. | `null`; not capped by this field. |
+| `max_total_tokens` | Optional combined token cap. | `null`; not capped by this field. |
+| `max_top_k` | Maximum number of retrieval chunks returned. | `null`; no policy cap. For structured retrieval, requested `top_k` is lowered to this cap when present. |
+| `chunking` | Policy controls for chunking provider/model selection. | `{}`; used when the task is chunking, not for normal chat retrieval. |
+
+### Related access controls
+
+Provider records and machine API keys also influence access.
+
+| Source | Relevant fields | Effect |
+|---|---|---|
+| Provider record | `name`, `base_url`, `default_model`, `models`, `capabilities`, `client_controls`, `secret_ref` | Defines which models and capabilities exist for a provider name used by a policy. |
+| Machine API key | `scopes`, `default_pipeline_id`, `allowed_providers`, `allowed_models`, `max_input_tokens`, `max_output_tokens`, `max_total_tokens`, `max_top_k` | Adds service-client constraints alongside or in addition to pipeline policy limits. |
+
+<Note>
+Machine-key scopes are enforced at management and runtime boundaries. Examples include `corpora:write`, `corpora:read`, `chat:invoke`, and `rag:query`. Do not treat this list as a complete scope catalog unless it is confirmed in the current runtime model.
+</Note>
+
+## Common outcomes
+
+| Scenario | Expected outcome |
+|---|---|
+| Request contains an allowed `provider:model` identifier. | The request routes to the selected provider and model. |
+| Request omits the model and the policy has `default_provider` and `default_model`. | TokenStream uses the policy default provider and model. |
+| Request omits the corpus and the policy has `default_corpus_id`. | TokenStream uses the policy corpus. |
+| Policy defines `default_filters` and the request supplies additional filters. | TokenStream merges defaults with request filters; request values override defaults for the same key. |
+| Requested corpus is not in `allowed_corpus_ids`. | TokenStream rejects the request before retrieval. For `/v1/rag/query`, this is returned as a `422` error with `code: "invalid_pipeline"`. |
+| No provider or model can be resolved. | Chat completion returns a structured `422` error with `code: "provider_resolution_failed"`. |
+| Requested `top_k` exceeds the policy `max_top_k`. | TokenStream caps `top_k` to `max_top_k`. |
+| Provider has tools disabled or the retrieval tool is not allowed. | TokenStream omits the retrieval tool from the model call. |
+
+<Warning>
+The exact error envelope and status code for every disallowed provider, disallowed model, and combined key-plus-policy precedence path are only partially shown in the supplied sources. Confirm these paths against the current OpenAPI contract and live service response before publishing strict client-facing error guidance.
+</Warning>
+
+## Limits and evidence gaps
+
+- The supplied sources establish policy field names, corpus allowlist enforcement, filter merging, retrieval `max_top_k` capping, retrieval tool allowlisting, provider/model qualification, and policy default routing.
+- The sources do not prove a complete, final precedence order when a machine API key and a pipeline policy both specify `allowed_providers`, `allowed_models`, or token limits.
+- The exact user-facing labels in the admin UI for policy editing are not documented by the provided evidence; field names here follow the runtime/config model.
+- The complete supported scope catalog is not fully enumerated in the provided evidence.

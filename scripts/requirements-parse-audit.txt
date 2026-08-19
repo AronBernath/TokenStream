@@ -1,0 +1,3 @@
+# Dependencies for parse_audit_workbook.py (run once in development)
+openpyxl>=3.1.5
+PyYAML>=6.0

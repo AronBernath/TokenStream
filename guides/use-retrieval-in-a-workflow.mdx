@@ -1,0 +1,76 @@
+---
+title: "Use Retrieval In A Workflow"
+description: "Add corpus-scoped retrieval to a client workflow and verify the returned evidence."
+---
+
+# Use Retrieval In A Workflow
+
+This guide shows the shape of a retrieval-backed workflow. Use it after you have configured access, created a corpus, registered sources, and completed ingestion.
+
+## Prerequisites
+
+Before a client application depends on retrieval:
+
+- the corpus exists
+- sources are registered or uploaded
+- ingestion has completed successfully
+- corpus readiness reports usable indexed content
+- the caller has a machine key with the required scopes
+- the selected policy allows the target corpus and retrieval tool
+
+## Choose the retrieval boundary
+
+Pick the corpus that matches the user task. A documentation assistant should retrieve from documentation sources. A repository assistant should retrieve from a repository snapshot corpus. A customer support flow should retrieve from the tenant or support corpus intended for that user.
+
+Avoid broad fallback corpora unless the application clearly explains that the answer may draw from mixed sources.
+
+## Apply filters
+
+Use filters to keep retrieval aligned with the current user and task. Examples:
+
+```json
+{
+  "filters": {
+    "source_kind": "repository_snapshot",
+    "language": "python"
+  }
+}
+```
+
+For repository-backed workflows, filters such as `path`, `source_kind`, `symbol`, and `commit_sha` are often more useful than free text alone. For tenant-aware applications, tenant or customer identifiers should be part of the metadata contract.
+
+## Request enough context
+
+Policies may cap retrieval with `max_top_k`. Start with a small number of chunks for simple answers and increase it only when the workflow needs broader context. Higher values can improve recall but also make answers noisier and more expensive.
+
+## Use citations in the response
+
+A source-backed workflow should keep citations attached to the model-facing prompt and to the user-facing answer. At minimum, preserve:
+
+- corpus ID
+- source ID
+- source version or content hash when available
+- path or URL
+- line or section metadata when available
+
+If citations are missing, show a review warning or ask the user to refine the request.
+
+## Validate the result
+
+After the model responds, the client should check:
+
+- Did retrieval return any chunks?
+- Do the citations match the requested corpus and filters?
+- Does the answer rely on unsupported assumptions?
+- Did the model mention a source that was not returned?
+- Is the corpus known to be current?
+
+Answers that fail these checks should be treated as draft or unverified output.
+
+## Reingest when sources change
+
+When source material changes, register the updated source version or upload a new snapshot, start an ingestion job, and wait for readiness again. Do this before expecting retrieval to reflect the latest content.
+
+<Warning>
+Do not hide retrieval failures behind confident prose. If TokenStream returns no useful chunks, the client workflow should say that the source-backed evidence is missing or incomplete.
+</Warning>

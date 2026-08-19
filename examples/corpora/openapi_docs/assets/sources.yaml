@@ -1,0 +1,49 @@
+sources:
+
+  - id: openapi_orchestrator_api
+    type: file
+    local_path: "/corpora/openapi_docs/docs/openapi_orchestrator_api.yaml"
+    format: yaml
+    language: en
+    doc_type: "openapi_contract"
+    tags: ["orchestrator", "api", "openapi"]
+
+  - id: openapi_retrieval_api
+    type: file
+    local_path: "/corpora/openapi_docs/docs/openapi_retrieval_api.yaml"
+    format: yaml
+    language: en
+    doc_type: "openapi_contract"
+    tags: ["retrieval", "api", "openapi"]
+
+  - id: services_overview
+    type: file
+    local_path: "/corpora/openapi_docs/docs/services_overview.md"
+    format: markdown
+    language: en
+    doc_type: "architecture_doc"
+    tags: ["architecture", "overview", "markdown"]
+
+  - id: service_orchestrator_api
+    type: file
+    local_path: "/corpora/openapi_docs/docs/service_orchestrator_api.md"
+    format: markdown
+    language: en
+    doc_type: "service_doc"
+    tags: ["orchestrator", "api", "markdown"]
+
+  - id: service_retrieval_api
+    type: file
+    local_path: "/corpora/openapi_docs/docs/service_retrieval_api.md"
+    format: markdown
+    language: en
+    doc_type: "service_doc"
+    tags: ["retrieval", "api", "markdown"]
+
+  - id: service_ingestion_worker
+    type: file
+    local_path: "/corpora/openapi_docs/docs/service_ingestion_worker.md"
+    format: markdown
+    language: en
+    doc_type: "service_doc"
+    tags: ["ingestion", "worker", "markdown"]

@@ -1,0 +1,58 @@
+---
+title: "How TokenStream Fits Behind Your Application"
+description: "Explain the public integration model for using TokenStream behind another application."
+---
+
+# How TokenStream Fits Behind Your Application
+
+TokenStream is deployed as a governed runtime behind your product, not as an end-user chat application. Your client application owns the user experience, prompt, product workflow, and final application behavior. TokenStream provides provider routing, policy enforcement, retrieval, source ingestion, and optional tool orchestration at defined service boundaries.
+
+## Integration boundary
+
+TokenStream separates client-facing runtime entry points from internal background services.
+
+| Boundary | Service or package | Exposure |
+| --- | --- | --- |
+| Client runtime API | `orchestrator-api` | Public client boundary for chat, model discovery, and structured retrieval |
+| Browser administration | `dev-ui` | Human administration and embedded management API |
+| Retrieval service | `retrieval-api` | Trusted internal service; normally reached through the orchestrator or retrieval tools |
+| Ingestion worker | `ingestion-worker` | Internal background service |
+| Registry and auth package | `config_auth` | Embedded in `dev-ui`; exposes management routes under `/v1/management` |
+| Shared runtime helpers | `common` | No HTTP endpoints of its own |
+
+<Note>
+`retrieval-api` may be called directly by trusted internal clients, but normal application traffic should go through `orchestrator-api`. Treat direct retrieval access as a deliberate deployment decision, not the default integration path.
+</Note>
+
+## Request journey
+
+The shortest runtime path for an application goes through `orchestrator-api`.
+
+<Steps>
+<Step title="Your application submits a chat request">
+Call `POST /v1/chat/completions` with OpenAI-compatible `messages` and a selected model. Use a plain model ID or a `provider:model` selector when unambiguous routing matters.
+</Step>
+<Step title="TokenStream resolves pipeline policy">
+The orchestrator resolves the pipeline context, including allowed corpora, providers, models, tools, default filters, default provider/model, and token or top-`k` limits.
+</Step>
+<Step title="Provider routing happens after policy resolution">
+If the requested provider and model are allowed, the orchestrator routes the request to the configured provider and returns an OpenAI-compatible response.
+</Step>
+<Step title="Retrieval happens through tools or a dedicated RAG route">
+For retrieval inside chat, the server may expose the retrieval tool when provider tools and pipeline tool policy allow it. For deterministic retrieval, call `POST /v1/rag/query` or `POST /v1/rag/lookup`.
+</Step>
+</Steps>
+
+Retrieval is corpus-scoped. Retrieval never crosses corpora. A retrieval response includes `answer`, `citations`, and ranked `chunks` that your application can render, store, or cite.
+
+## Limits
+
+<Warning>
+Checked-in sources disagree on the local retrieval API address and corpus discovery route. Some material uses `http://localhost:8003` and `/corpora`; other material uses port `8000` and `GET /v1/corpora`. Treat these values as environment-specific and verify the active deployment before publishing client code.
+</Warning>
+
+- `orchestrator-api` does not store retrieval indexes. It forwards retrieval work to `retrieval-api`.
+- Source ingestion is asynchronous. A registered source is not immediately retrievable until an ingestion job produces embeddings and indexes.
+- Client-owned prompts, provider choices, and model choices stay with the calling application. TokenStream enforces generic request policy rather than injecting application-specific behavior.
+- Service-level Bearer authentication is enforced only when the deployment configures `ORCHESTRATOR_API_KEYS_JSON` or `ORCHESTRATOR_API_KEY`.
+- `dev-ui` and the embedded `config_auth` package are administrative boundaries. Do not call `/v1/management` from end-user client devices unless machine-key access is intended and scoped correctly.

@@ -1,0 +1,805 @@
+openapi: 3.1.0
+info:
+  title: TokenStream API
+  version: 1.0.0
+  summary: OpenAI-compatible facade for provider routing, retrieval, and tool orchestration.
+  description: |
+    Checked-in OpenAPI contract for the `orchestrator-api` service inside TokenStream.
+
+    This service is the LLM-facing coordination layer of the RAG stack. It exposes an
+    OpenAI-style chat interface, performs provider routing, can call retrieval, and can
+    orchestrate MCP-backed tools when configured.
+
+    Notes:
+    - service-level Bearer authentication is enforced when `ORCHESTRATOR_API_KEYS_JSON` or `ORCHESTRATOR_API_KEY`
+      is configured at runtime. Scoped API keys allow granular access control and policy enforcement.
+    - `/v1/chat/completions` supports both standard JSON responses and replay-style
+      server-sent event streaming
+    - `/v1/rag/query` forwards structured hybrid retrieval requests to `retrieval-api`
+    - `/v1/rag/lookup` forwards lexical/exact lookup requests to `retrieval-api`
+servers:
+  - url: http://localhost:8004
+    description: Local development default
+tags:
+  - name: Health
+    description: Liveness and auxiliary endpoints.
+  - name: Retrieval
+    description: Structured deterministic retrieval exposed by orchestrator-api.
+  - name: Models
+    description: OpenAI-compatible model discovery.
+  - name: Chat
+    description: OpenAI-compatible chat completion endpoints.
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getOrchestratorHealth
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Service is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                ok: true
+
+  /v1/rag/query:
+    post:
+      tags: [Retrieval]
+      operationId: queryStructuredRag
+      summary: Deterministic RAG retrieval
+      description: |
+        Executes a structured retrieval flow through TokenStream.
+
+        The service resolves pipeline policy, applies default corpus and filter rules,
+        forwards the request to `retrieval-api`, and returns the structured retrieval
+        envelope.
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RagQueryRequest'
+            examples:
+              pipelineScoped:
+                value:
+                  query: Summarize incident reporting obligations.
+                  pipeline_id: policy-default
+                  corpus_id: my_corpus
+                  top_k: 6
+              minimal:
+                value:
+                  query: What context is relevant to access control?
+      responses:
+        '200':
+          description: Structured retrieval completed successfully.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestIdHeader'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '401':
+          description: Missing or invalid Bearer token when service-level auth is enabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedResponse'
+              example:
+                error: unauthorized
+        '422':
+          description: Validation error or pipeline validation failure.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ValidationErrorResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Upstream retrieval or provider integration failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                retrievalFailure:
+                  value:
+                    error:
+                      code: retrieval_upstream_error
+                      message: upstream retrieval call failed
+
+  /v1/rag/lookup:
+    post:
+      tags: [Retrieval]
+      operationId: lookupStructuredRag
+      summary: Deterministic RAG lexical/exact lookup
+      description: |
+        Resolves pipeline policy, applies corpus and filter rules, forwards exact
+        lexical terms to `retrieval-api` `/v1/lookup`, and returns the structured
+        retrieval envelope.
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RagLookupRequest'
+            examples:
+              architectureTerms:
+                value:
+                  terms:
+                    - /v1/chat/completions
+                    - IngestionJob
+                    - processor_id
+                  pipeline_id: policy-default
+                  top_k: 5
+                  max_results: 20
+      responses:
+        '200':
+          description: Structured lookup completed successfully.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestIdHeader'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '401':
+          description: Missing or invalid Bearer token when service-level auth is enabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedResponse'
+        '422':
+          description: Validation error or pipeline validation failure.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ValidationErrorResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Upstream lookup failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /v1/models:
+    get:
+      tags: [Models]
+      operationId: listOrchestratorModels
+      summary: List available models
+      description: |
+        Returns an OpenAI-style model list.
+
+        When multiple providers are configured, model identifiers may be prefixed as
+        `provider:model` to preserve unambiguous routing on subsequent requests.
+      security:
+        - bearerAuth: []
+        - {}
+      responses:
+        '200':
+          description: Available models.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelListResponse'
+              example:
+                object: list
+                data:
+                  - id: openai:gpt-5.5-medium
+                    object: model
+                    created: 1760000000
+                    owned_by: openai
+                  - id: openai:gpt-5.4-medium
+                    object: model
+                    created: 1760000000
+                    owned_by: openai
+                  - id: deepseek:deepseek-v4-pro
+                    object: model
+                    created: 1760000000
+                    owned_by: deepseek
+                  - id: deepseek:deepseek-v4-flash
+                    object: model
+                    created: 1760000000
+                    owned_by: deepseek
+                  - id: anthropic:claude-3-5-sonnet-latest
+                    object: model
+                    created: 1760000000
+                    owned_by: anthropic
+        '401':
+          description: Missing or invalid Bearer token when service-level auth is enabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedResponse'
+
+  /v1/chat/completions:
+    post:
+      tags: [Chat]
+      operationId: createChatCompletion
+      summary: Create an OpenAI-compatible chat completion
+      description: |
+        Executes a chat completion through the configured provider stack.
+
+        Behavior highlights:
+        - provider selection supports plain model IDs and `provider:model`
+        - pipeline policy may constrain corpus selection, apply default filters, and limit tool access
+        - server tools and MCP tools can be invoked when enabled
+        - `response_format` supports `json_object` and `json_schema`
+        - when `stream=true`, the API emits replay-style SSE after the full completion
+          has already been generated
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenAIChatCompletionRequest'
+            examples:
+              standard:
+                value:
+                  model: openai:gpt-5.1
+                  messages:
+                    - role: user
+                      content: Summarize operational requirements for third-party risk.
+                  temperature: 0.1
+              structured:
+                value:
+                  model: openai:gpt-5.1
+                  messages:
+                    - role: user
+                      content: Return a JSON summary with keys status and reasons.
+                  response_format:
+                    type: json_schema
+                    json_schema:
+                      name: summary_payload
+                      schema:
+                        type: object
+                        additionalProperties: false
+                        required:
+                          - status
+                          - reasons
+                        properties:
+                          status:
+                            type: string
+                          reasons:
+                            type: array
+                            items:
+                              type: string
+              streaming:
+                value:
+                  model: openai:gpt-5.1
+                  stream: true
+                  messages:
+                    - role: user
+                      content: Provide a short answer.
+      responses:
+        '200':
+          description: |
+            Chat completion result.
+
+            `application/json` is returned when `stream=false`.
+            `text/event-stream` is returned when `stream=true`.
+          headers:
+            x-request-id:
+              $ref: '#/components/headers/RequestIdHeader'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenAIChatCompletionResponse'
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Server-sent event stream containing `chat.completion.chunk` payloads
+                  followed by `data: [DONE]`.
+              examples:
+                replayStream:
+                  value: |-
+                    data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1760000000,"model":"openai:gpt-5.1","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}
+
+                    data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1760000000,"model":"openai:gpt-5.1","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}
+
+                    data: {"id":"chatcmpl-123","object":"chat.completion.chunk","created":1760000000,"model":"openai:gpt-5.1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+                    data: [DONE]
+        '400':
+          description: Request rejected by TokenStream policy or unsupported strict schema provider.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                strictSchemaUnsupported:
+                  value:
+                    error:
+                      code: unsupported_strict_schema_provider
+                      message: Provider 'anthropic' with model 'claude-3-5-sonnet-latest' does not support strict JSON schema enforcement.
+                      details:
+                        provider: anthropic
+                        model: claude-3-5-sonnet-latest
+        '401':
+          description: Missing or invalid Bearer token when service-level auth is enabled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnauthorizedResponse'
+        '422':
+          description: Validation failure, invalid pipeline selection, or response-format validation error.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ValidationErrorResponse'
+                  - $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal orchestration failure such as tool loop exhaustion.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Upstream provider or tool execution failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  headers:
+    RequestIdHeader:
+      description: Correlation identifier generated or echoed by the service.
+      schema:
+        type: string
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API key
+      description: |
+        Conditional service-level authentication.
+
+        The application enforces this header when an API key registry or `ORCHESTRATOR_API_KEY` is set.
+        When auth is disabled (standalone mode), the same endpoints are callable without the header.
+
+  schemas:
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+
+    RagQueryRequest:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query:
+          type: string
+          description: Natural language query string.
+        pipeline_id:
+          type:
+            - string
+            - 'null'
+          description: Optional pipeline identifier used to resolve policy defaults and allowlists.
+        corpus_id:
+          type:
+            - string
+            - 'null'
+          description: Target corpus identifier. If omitted, the service uses `DEFAULT_CORPUS_ID`.
+        filters:
+          type: object
+          default: {}
+          additionalProperties: true
+          description: Optional metadata filters applied consistently to retrieval.
+        top_k:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          description: Number of chunks to return. If omitted, the service uses `DEFAULT_TOP_K`.
+
+    RagLookupRequest:
+      type: object
+      additionalProperties: false
+      required: [terms]
+      properties:
+        terms:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: Exact lexical terms, identifiers, endpoint paths, symbols, or configuration keys to look up.
+          items:
+            type: string
+        pipeline_id:
+          type:
+            - string
+            - 'null'
+          description: Optional pipeline identifier used to resolve policy defaults and allowlists.
+        corpus_id:
+          type:
+            - string
+            - 'null'
+          description: Target corpus identifier. If omitted, the service uses `DEFAULT_CORPUS_ID`.
+        filters:
+          type: object
+          default: {}
+          additionalProperties: true
+          description: Optional metadata filters applied consistently to lookup.
+        top_k:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          description: Maximum chunks to return per lookup term. If omitted, the service uses 5.
+        max_results:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          description: Maximum chunks to return across all terms. If omitted, the service uses 20.
+
+    QueryResponse:
+      type: object
+      additionalProperties: false
+      required: [api_version, answer, citations, chunks]
+      properties:
+        api_version:
+          type: string
+          default: v1
+        answer:
+          type: string
+        citations:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        chunks:
+          type: array
+          items:
+            $ref: '#/components/schemas/RetrievedChunk'
+
+    RetrievedChunk:
+      type: object
+      additionalProperties: false
+      required:
+        - chunk_id
+        - score
+        - text
+        - doc_id
+        - doc_type
+        - source_url
+      properties:
+        chunk_id:
+          type: string
+        score:
+          type: number
+        text:
+          type: string
+        doc_id:
+          type: string
+        doc_type:
+          type: string
+        source_url:
+          type: string
+        title:
+          type:
+            - string
+            - 'null'
+        section_id:
+          type:
+            - string
+            - 'null'
+        tags:
+          type:
+            - array
+            - 'null'
+          items:
+            type: string
+        version_date:
+          type:
+            - string
+            - 'null'
+        metadata:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+
+    OpenAIChatMessage:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          type: string
+          description: OpenAI-style message role.
+        content:
+          description: |
+            Message content accepted by the application model.
+
+            The runtime accepts plain text, an object, or an array of objects. Extra
+            fields beyond the declared model are ignored by Pydantic.
+          oneOf:
+            - type: string
+            - type: object
+              additionalProperties: true
+            - type: array
+              items:
+                type: object
+                additionalProperties: true
+            - type: 'null'
+          default: ''
+        name:
+          type:
+            - string
+            - 'null'
+        tool_call_id:
+          type:
+            - string
+            - 'null'
+
+    JsonObjectResponseFormat:
+      type: object
+      additionalProperties: true
+      required: [type]
+      properties:
+        type:
+          type: string
+          const: json_object
+
+    JsonSchemaDefinition:
+      type: object
+      additionalProperties: true
+      properties:
+        name:
+          type:
+            - string
+            - 'null'
+          description: Optional schema name surfaced in validation details.
+        schema:
+          type: object
+          additionalProperties: true
+          description: JSON Schema document used for validation.
+
+    JsonSchemaResponseFormat:
+      type: object
+      additionalProperties: true
+      required: [type]
+      properties:
+        type:
+          type: string
+          const: json_schema
+        json_schema:
+          $ref: '#/components/schemas/JsonSchemaDefinition'
+
+    ResponseFormat:
+      oneOf:
+        - $ref: '#/components/schemas/JsonObjectResponseFormat'
+        - $ref: '#/components/schemas/JsonSchemaResponseFormat'
+      description: |
+        Optional response format enforcement.
+
+        `json_object` verifies valid JSON.
+        `json_schema` verifies valid JSON and attempts JSON Schema validation when a
+        schema is supplied.
+
+    OpenAIChatCompletionRequest:
+      type: object
+      additionalProperties: false
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+          description: |
+            Model identifier. Supports both plain model IDs and `provider:model`.
+        messages:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OpenAIChatMessage'
+        pipeline_id:
+          type:
+            - string
+            - 'null'
+          description: Optional pipeline identifier to resolve tool and corpus policy.
+        stream:
+          type: boolean
+          default: false
+          description: When true, returns an SSE replay stream.
+        temperature:
+          type:
+            - number
+            - 'null'
+        max_tokens:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+        context_length:
+          type:
+            - integer
+            - 'null'
+          minimum: 1
+          description: Optional client-requested context window limit. Only honored when enabled by the selected provider definition.
+        tool_choice:
+          type:
+            - string
+            - 'null'
+          description: |
+            OpenAI-style tool selector. The application recognizes `none` to disable
+            server-side tools; otherwise tools default to automatic selection.
+        response_format:
+          anyOf:
+            - $ref: '#/components/schemas/ResponseFormat'
+            - type: 'null'
+
+    OpenAIAssistantMessage:
+      type: object
+      additionalProperties: false
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          const: assistant
+        content:
+          type: string
+        parsed:
+          description: Optional parsed representation added by the service when JSON output validation succeeds.
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+              items: {}
+            - type: string
+            - type: number
+            - type: integer
+            - type: boolean
+            - type: 'null'
+
+    ChatChoice:
+      type: object
+      additionalProperties: false
+      required: [index, message, finish_reason]
+      properties:
+        index:
+          type: integer
+        message:
+          $ref: '#/components/schemas/OpenAIAssistantMessage'
+        finish_reason:
+          type: string
+          const: stop
+
+    Usage:
+      type: object
+      additionalProperties: true
+      properties:
+        prompt_tokens:
+          type: integer
+        completion_tokens:
+          type: integer
+        total_tokens:
+          type: integer
+
+    OpenAIChatCompletionResponse:
+      type: object
+      additionalProperties: false
+      required: [id, object, created, model, choices, usage]
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          const: chat.completion
+        created:
+          type: integer
+        model:
+          type: string
+        choices:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatChoice'
+        usage:
+          $ref: '#/components/schemas/Usage'
+
+    ModelCard:
+      type: object
+      additionalProperties: false
+      required: [id, object, created, owned_by]
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          const: model
+        created:
+          type: integer
+        owned_by:
+          type: string
+
+    ModelListResponse:
+      type: object
+      additionalProperties: false
+      required: [object, data]
+      properties:
+        object:
+          type: string
+          const: list
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelCard'
+
+    ErrorObject:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorObject'
+
+    UnauthorizedResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          const: unauthorized
+
+    ValidationErrorItem:
+      type: object
+      additionalProperties: true
+      required: [loc, msg, type]
+      properties:
+        loc:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+        type:
+          type: string
+
+    ValidationErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationErrorItem'

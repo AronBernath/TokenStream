@@ -1,0 +1,92 @@
+---
+title: "Configure Access And Credentials"
+description: "Set up local credentials, provider keys, service tokens, and machine access for TokenStream."
+---
+
+# Configure Access And Credentials
+
+TokenStream uses separate credentials for local services, model providers, human administrators, and client applications. Keep these responsibilities separate so a leaked client key does not become an admin key or provider secret.
+
+## Create a local environment file
+
+Copy the example environment file and replace every placeholder before starting the stack:
+
+```bash
+cp .env.example .env
+```
+
+Do not commit `.env` or any `.env.*` file. The repository ignores local environment files by default.
+
+## Required local secrets
+
+Generate strong local values for service secrets:
+
+```bash
+openssl rand -hex 32
+```
+
+At minimum, review these values in `.env`:
+
+```env
+OPENAI_API_KEY=replace-me
+DEEPSEEK_API_KEY=replace-me
+ORCHESTRATOR_API_KEY=replace-me-generated-secret
+CONFIG_AUTH_INTERNAL_TOKEN=replace-me-generated-secret
+ORCHESTRATOR_RELOAD_TOKEN=replace-me-generated-secret
+MINIO_ROOT_PASSWORD=replace-me-generated-secret
+WEBUI_ADMIN_PASSWORD=replace-me-generated-secret
+```
+
+Only set provider API keys for providers you plan to use. For local-only testing, you can configure local Ollama-style providers instead of hosted provider keys.
+
+## Provider credentials
+
+Provider records should reference secrets indirectly, for example:
+
+```json
+{
+  "name": "openai",
+  "secret_ref": "env://OPENAI_API_KEY",
+  "secret_source_type": "env"
+}
+```
+
+This keeps provider configuration reviewable without publishing the secret value.
+
+## Human admin access
+
+The admin UI is intended for trusted operators who configure providers, policies, corpora, sources, machine keys, and runtime settings. Rotate any bootstrap admin password before using TokenStream outside local development.
+
+<Warning>
+Do not expose the admin UI publicly with default credentials. Treat it as an operations surface, not an end-user product UI.
+</Warning>
+
+## Machine API keys
+
+Client applications should authenticate with machine API keys. Machine keys should be scoped to the work the client performs:
+
+- read-only retrieval clients need read scopes
+- corpus setup clients need corpus write scopes
+- ingestion automation needs source and ingestion job permissions
+- admin automation should use separate, tightly controlled keys
+
+When authentication is enabled, send the key as a bearer token:
+
+```http
+Authorization: Bearer <machine-key>
+```
+
+## Internal service tokens
+
+Some tokens are for service-to-service control paths only. For example, the reload token protects runtime reload calls between the admin/config surface and runtime services. Do not give internal control-plane tokens to client applications.
+
+## Before going public
+
+Before pushing TokenStream to a public repository or deploying it outside a trusted local machine:
+
+- verify `.env` is ignored
+- verify `data/` and local database files are ignored
+- rotate any token that was pasted into chat, logs, or shell history
+- enable GitHub secret scanning
+- run a secret scanner such as gitleaks or trufflehog in CI
+- replace any private provider endpoints with public examples or environment-specific deployment values
