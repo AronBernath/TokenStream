@@ -1,0 +1,218 @@
+:root {
+  --ts-bg: #f7fbff;
+  --ts-grid: rgba(14, 165, 233, 0.08);
+  --ts-panel: #ffffff;
+  --ts-nav: #0b1020;
+  --ts-sidebar: #171d2f;
+  --ts-sidebar-2: #222a3d;
+  --ts-ink: #111827;
+  --ts-text: #334155;
+  --ts-muted: #64748b;
+  --ts-line: #dbe7f0;
+  --ts-cyan: #06b6d4;
+  --ts-cyan-strong: #0891b2;
+  --ts-cyan-soft: #e6fbff;
+}
+
+html,
+body {
+  background: var(--ts-bg) !important;
+}
+
+#background-color,
+body {
+  background:
+    radial-gradient(circle at 50% -10%, rgba(103, 232, 249, 0.22), transparent 36rem),
+    linear-gradient(var(--ts-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--ts-grid) 1px, transparent 1px),
+    var(--ts-bg) !important;
+  background-size: auto, 32px 32px, 32px 32px, auto !important;
+}
+
+#navbar {
+  background: var(--ts-nav) !important;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 18px 48px rgba(15, 23, 42, 0.18) !important;
+}
+
+#navbar a,
+#navbar button {
+  color: #e5edf7 !important;
+}
+
+#navbar a:hover,
+#navbar button:hover {
+  color: #ffffff !important;
+}
+
+#navbar [href="/quickstart"],
+#navbar a[href="/quickstart"] {
+  border: 1px solid var(--ts-cyan) !important;
+  border-radius: 6px !important;
+  color: #67e8f9 !important;
+  background: rgba(6, 182, 212, 0.08) !important;
+  font-weight: 700 !important;
+}
+
+#sidebar {
+  background: linear-gradient(180deg, var(--ts-sidebar), var(--ts-sidebar-2)) !important;
+  border-right: 1px solid rgba(148, 163, 184, 0.2) !important;
+}
+
+#sidebar-content {
+  scrollbar-color: rgba(103, 232, 249, 0.35) transparent;
+}
+
+#sidebar-content h5,
+#sidebar-content [class*="group"] {
+  color: rgba(248, 250, 252, 0.88) !important;
+  font-weight: 760 !important;
+}
+
+#sidebar-content a {
+  color: rgba(203, 213, 225, 0.62) !important;
+  font-weight: 520 !important;
+}
+
+#sidebar-content a:hover {
+  color: #ffffff !important;
+}
+
+#sidebar-content [aria-current="page"],
+#sidebar-content a[data-active="true"],
+#sidebar-content a[href="/overview/what-is-tokenstream"] {
+  color: var(--ts-cyan) !important;
+  font-weight: 760 !important;
+}
+
+main,
+article,
+#content,
+#content-area {
+  color: var(--ts-text) !important;
+}
+
+main h1,
+article h1,
+#content h1,
+#page-title {
+  color: var(--ts-ink) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+}
+
+main h2,
+main h3,
+article h2,
+article h3,
+#content h2,
+#content h3 {
+  color: var(--ts-ink) !important;
+  letter-spacing: 0 !important;
+}
+
+main p,
+main li,
+article p,
+article li,
+#content p,
+#content li {
+  color: var(--ts-text) !important;
+  line-height: 1.78 !important;
+}
+
+main strong,
+article strong,
+#content strong {
+  color: var(--ts-ink) !important;
+}
+
+main a,
+article a,
+#content a {
+  color: var(--ts-cyan-strong) !important;
+  text-decoration-color: rgba(6, 182, 212, 0.38) !important;
+  text-underline-offset: 0.18em !important;
+}
+
+main a:hover,
+article a:hover,
+#content a:hover {
+  color: #0e7490 !important;
+  text-decoration-color: rgba(6, 182, 212, 0.85) !important;
+}
+
+main h2,
+article h2,
+#content h2 {
+  margin-top: 2.75rem !important;
+  padding-top: 2rem !important;
+  border-top: 1px solid var(--ts-line) !important;
+}
+
+main table,
+article table,
+#content table {
+  border: 1px solid var(--ts-line) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  background: rgba(255, 255, 255, 0.76) !important;
+}
+
+main thead,
+article thead,
+#content thead {
+  background: #eff7fb !important;
+}
+
+main code:not(pre code),
+article code:not(pre code),
+#content code:not(pre code) {
+  background: #e9f8fb !important;
+  border: 1px solid #c8eef5 !important;
+  border-radius: 5px !important;
+  color: #155e75 !important;
+  font-weight: 650 !important;
+}
+
+pre,
+code[class*="language-"] {
+  border-radius: 8px !important;
+}
+
+#table-of-contents,
+#table-of-contents a {
+  color: #64748b !important;
+}
+
+#table-of-contents a:hover,
+#table-of-contents [aria-current="true"] {
+  color: var(--ts-cyan-strong) !important;
+}
+
+#search-bar-entry,
+#assistant-entry,
+[cmdk-root],
+[role="dialog"] input {
+  border-radius: 8px !important;
+  border: 1px solid rgba(15, 23, 42, 0.14) !important;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.12) !important;
+}
+
+.card,
+[class*="card"],
+[class*="Card"] {
+  border-radius: 8px !important;
+}
+
+blockquote {
+  border-left-color: var(--ts-cyan) !important;
+  background: rgba(230, 251, 255, 0.68) !important;
+}
+
+@media (max-width: 1024px) {
+  #sidebar {
+    background: var(--ts-nav) !important;
+  }
+}

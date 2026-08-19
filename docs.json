@@ -2,10 +2,41 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "TokenStream",
+  "description": "AI orchestration runtime for governed model access, MCP tool use, RAG, ingestion, and source-backed context.",
   "colors": {
-    "primary": "#2563eb",
-    "light": "#eff6ff",
-    "dark": "#1e3a8a"
+    "primary": "#06b6d4",
+    "light": "#e6fbff",
+    "dark": "#0b1020"
+  },
+  "appearance": {
+    "default": "light"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/AronBernath/TokenStream"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Quickstart",
+      "href": "/quickstart"
+    }
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs",
+    "codeblocks": "dark"
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "cursor",
+      "vscode"
+    ]
   },
   "navigation": {
     "groups": [
