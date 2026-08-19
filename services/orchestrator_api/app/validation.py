@@ -6,9 +6,7 @@ from typing import Any, Dict, Optional
 try:
     from jsonschema import validate, ValidationError
 except ImportError:
-    # Fallback if jsonschema is not installed in the runtime environment
-    def validate(instance, schema):
-        pass
+    validate = None
 
     class ValidationError(Exception):
         pass
@@ -95,6 +93,14 @@ def validate_response_format(response_format: Optional[Dict[str, Any]], content:
             logger.warning("json_schema requested but no schema provided in response_format")
             return
 
+        if validate is None:
+            raise ServiceError(
+                code="response_schema_validation_unavailable",
+                message="JSON schema response validation is unavailable because jsonschema is not installed.",
+                status_code=500,
+                details={"schema_name": schema_def.get("name")},
+            )
+
         try:
             validate(instance=parsed, schema=schema)
         except ValidationError as e:
@@ -105,9 +111,6 @@ def validate_response_format(response_format: Optional[Dict[str, Any]], content:
                 details={"error": e.message, "path": list(e.path), "schema_name": schema_def.get("name")},
             )
         except Exception as e:
-            # Catch-all for jsonschema internal issues or missing dependency
+            # Catch-all for jsonschema internal issues.
             logger.error("jsonschema_validation_error %s", str(e), exc_info=True)
-            if "jsonschema" not in globals() and "validate" not in globals():
-                # If we are in the fallback mode, just pass
-                return
             raise
