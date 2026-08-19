@@ -1,3 +1,4 @@
+import hashlib
 import json
 import pytest
 from fastapi.testclient import TestClient
@@ -11,7 +12,7 @@ def mock_auth_registry(monkeypatch):
     payload = [
         {
             "key_id": "test-key",
-            "key_hash": "9caf06bb4436cdbfa20af9121a626bc1093c4f54b31c0fa937957856135345b6",  # hash of "test-secret"
+            "key_hash": hashlib.sha256(b"test-secret").hexdigest(),
             "subject": "test-user",
             "scopes": ["models:list", "chat:invoke"],
             "allowed_providers": ["openai"],
@@ -19,7 +20,7 @@ def mock_auth_registry(monkeypatch):
         },
         {
             "key_id": "admin-key",
-            "key_hash": "16175223c8ddce5ace0493c948569c211b03c4c6bb3d3e484434999448cffe01",  # hash of "admin-secret"
+            "key_hash": hashlib.sha256(b"admin-secret").hexdigest(),
             "subject": "admin",
             "scopes": ["admin:*"],
         },
