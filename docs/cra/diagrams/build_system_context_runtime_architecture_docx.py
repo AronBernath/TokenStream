@@ -17,7 +17,11 @@ def font(size, bold=False):
     font_name = "arialbd.ttf" if bold else "arial.ttf"
     candidates = [
         Path("C:/Windows/Fonts") / font_name,
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+            if bold
+            else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        ),
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -147,12 +151,24 @@ def render_diagram():
     box(draw, (140, 610, 430, 720), "Corpus / source owner", max_chars=22)
     box(draw, (140, 790, 430, 900), "Corpus source systems\nURLs, files, repos,\narchives", max_chars=24)
     box(draw, (140, 970, 430, 1080), "Optional local chat UI\nfor example Open WebUI", max_chars=24)
-    box(draw, (140, 1150, 430, 1260), "Client application end user\nno direct access expected", fill="#F9FAFB", max_chars=24)
+    box(
+        draw,
+        (140, 1150, 430, 1260),
+        "Client application end user\nno direct access expected",
+        fill="#F9FAFB",
+        max_chars=24,
+    )
 
     # TokenStream runtime services.
     box(draw, (655, 250, 845, 360), "dev-ui\nbrowser admin surface", fill="#F8FAFC", max_chars=20)
     box(draw, (935, 250, 1140, 360), "config_auth\nusers, RBAC, keys,\nregistries", fill="#F8FAFC", max_chars=22)
-    box(draw, (1225, 250, 1480, 370), "orchestrator-api\npolicy-aware LLM\nand tool router", fill="#F8FAFC", max_chars=23)
+    box(
+        draw,
+        (1225, 250, 1480, 370),
+        "orchestrator-api\npolicy-aware LLM\nand tool router",
+        fill="#F8FAFC",
+        max_chars=23,
+    )
     box(draw, (1545, 250, 1745, 360), "retrieval-api\ncorpus-scoped retrieval", fill="#F8FAFC", max_chars=22)
     box(draw, (1300, 570, 1535, 690), "ingestion-worker\nsource processing\nand indexing", fill="#F8FAFC", max_chars=23)
     box(draw, (1120, 570, 1255, 690), "TEI embedder\nembedding service", fill="#F8FAFC", max_chars=18)
@@ -308,9 +324,18 @@ def build_docx():
     doc.add_paragraph(
         "The diagram should be read as an architecture and context view rather than as the detailed STRIDE model. It establishes what is inside the self-hosted TokenStream runtime boundary and what remains external or user-controlled."
     )
-    bullet(doc, "External actors include client application backends, human administrators/operators, corpus/source owners, corpus source systems, optional local chat UI components, and indirect client application end users.")
-    bullet(doc, "TokenStream runtime components include dev-ui, config_auth, orchestrator-api, retrieval-api, ingestion-worker, TEI embedder, runtime snapshots, configuration/authentication storage, object storage, Qdrant vectors, and lexical/graph indexes.")
-    bullet(doc, "External systems include LLM providers and MCP servers/tools invoked through the orchestrator according to configured policy and available credentials.")
+    bullet(
+        doc,
+        "External actors include client application backends, human administrators/operators, corpus/source owners, corpus source systems, optional local chat UI components, and indirect client application end users.",
+    )
+    bullet(
+        doc,
+        "TokenStream runtime components include dev-ui, config_auth, orchestrator-api, retrieval-api, ingestion-worker, TEI embedder, runtime snapshots, configuration/authentication storage, object storage, Qdrant vectors, and lexical/graph indexes.",
+    )
+    bullet(
+        doc,
+        "External systems include LLM providers and MCP servers/tools invoked through the orchestrator according to configured policy and available credentials.",
+    )
 
     doc.add_heading("Scope Notes", level=1)
     doc.add_paragraph(

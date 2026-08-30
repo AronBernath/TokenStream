@@ -101,7 +101,9 @@ def store(cell_id, name, x, y, description, stores_credentials=False):
     }
 
 
-def flow(cell_id, name, source, target, description, protocol, public, encrypted, bidirectional, boundaries, vertices=None):
+def flow(
+    cell_id, name, source, target, description, protocol, public, encrypted, bidirectional, boundaries, vertices=None
+):
     return {
         "id": cell_id,
         "shape": "flow",
