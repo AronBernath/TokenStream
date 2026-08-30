@@ -47,3 +47,19 @@ Use the idempotent ensure path when integrating from a service client:
 PUT /v1/management/corpora/{corpus_id}/ensure
 Authorization: Bearer <machine-key>
 Content-Type: application/json
+```
+
+</Step>
+
+<Step title="Register or upload sources">
+Add URL-backed sources with the source creation endpoint, or upload file-backed sources with the multipart upload endpoint.
+</Step>
+
+<Step title="Create an ingestion job">
+Start an ingestion job for the corpus, optionally limiting it to specific `source_ids` or forcing re-embedding.
+</Step>
+
+<Step title="Poll readiness">
+Use the readiness endpoint to wait until the corpus has an active source and a completed ingestion job newer than the latest source update.
+</Step>
+</Steps>
