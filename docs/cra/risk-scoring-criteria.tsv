@@ -1,0 +1,20 @@
+Criterion type	Score / range	Name / level	Definition	Default handling / guidance
+Likelihood	1	Rare	Requires exceptional conditions, privileged preconditions, or no known practical attack path in the assessed deployment.	Use where the scenario is theoretically possible but not credible in normal TokenStream deployments.
+Likelihood	2	Unlikely	Plausible but difficult; requires uncommon access, unusual configuration, or multiple failures.	Use where credible but not expected under documented deployment assumptions.
+Likelihood	3	Possible	Credible in normal self-hosted deployments, especially with common misconfiguration or exposed interfaces.	Use for realistic operator, integration, dependency, or exposed-surface scenarios.
+Likelihood	4	Likely	Expected to occur in realistic deployments without deliberate mitigation, or supported by known attack patterns.	Use when prevention depends on explicit control or hardening.
+Likelihood	5	Highly likely	Easy to trigger, internet/common-tool accessible, automated, or already observed in comparable systems.	Use when threat is straightforward or already active/common.
+Impact	1	Negligible	No meaningful security effect; minor local inconvenience; no sensitive data or essential function affected.	No direct CRA security property impact beyond minor noise.
+Impact	2	Minor	Limited effect on a non-critical function, non-sensitive metadata, or recoverable local state.	Contained operational effect with easy recovery.
+Impact	3	Moderate	Affects one security boundary, corpus, service function, or operational workflow with contained impact.	Meaningful security impact but bounded in scope.
+Impact	4	Major	Exposes or compromises sensitive data, credentials, admin actions, tool execution, provider access, or essential availability in a meaningful deployment.	Requires mitigation or formal acceptance before readiness sign-off.
+Impact	5	Severe	Systemic compromise, broad data exposure, malicious code execution, cross-boundary privilege escalation, unrecoverable integrity loss, or major service unavailability.	Critical treatment priority.
+Risk band	1-4	Low	Low likelihood-impact product.	Acceptable with documented rationale; monitor during normal review.
+Risk band	5-9	Medium	Moderate risk requiring tracking.	Treatment plan required unless explicitly accepted by assessment owner.
+Risk band	10-15	High	Significant risk to CRA security properties or vulnerability-handling expectations.	Mitigation or compensating control required before release/readiness sign-off, unless formally risk-accepted.
+Risk band	16-25	Critical	Critical product or lifecycle risk.	Must be treated before release/readiness sign-off except under exceptional documented time-bound acceptance.
+Treatment option	N/A	Mitigate	Reduce likelihood or impact through a control, design change, process, test, or documentation.	Preferred option for Medium, High, and Critical risks.
+Treatment option	N/A	Avoid	Remove the risky feature, exposure, dependency, or deployment pattern.	Use where risk is not necessary for intended purpose.
+Treatment option	N/A	Transfer or share	Shift part of the risk through explicit operator responsibility, upstream dependency responsibility, or deployment prerequisite.	Must be documented; does not remove TokenStream evidence duties.
+Treatment option	N/A	Accept	Keep the risk with documented rationale, owner, expiry, and review trigger.	Allowed only under the acceptance criteria in the methodology.
+Treatment option	N/A	Monitor	Track risk without immediate change because score is low or dependent on external evolution.	Requires review trigger or cadence.

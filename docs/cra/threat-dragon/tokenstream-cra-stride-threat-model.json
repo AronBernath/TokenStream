@@ -1,0 +1,1209 @@
+{
+  "version": "2.6.2",
+  "summary": {
+    "title": "TokenStream CRA STRIDE Threat Model",
+    "owner": "TBD: TokenStream maintainer / CRA readiness owner",
+    "description": "Initial Threat Dragon model for the TokenStream CRA cybersecurity risk assessment. The diagram is configured for STRIDE. Risk scoring is defined outside Threat Dragon in docs/cra/risk-assessment-methodology.md.",
+    "id": "tokenstream-cra-stride-2026-08-26"
+  },
+  "detail": {
+    "contributors": [
+      {
+        "name": "Codex"
+      }
+    ],
+    "reviewer": "TBD",
+    "diagramTop": 1,
+    "threatTop": 1,
+    "diagrams": [
+      {
+        "id": 0,
+        "title": "TokenStream Self-Hosted Runtime",
+        "thumbnail": "./public/content/images/thumbnail.stride.jpg",
+        "diagramType": "STRIDE",
+        "version": "2.6.2",
+        "description": "Initial DFD for TokenStream CRA risk assessment. Use STRIDE per actor, process, store, flow, and trust boundary. Individual threats are intentionally not populated yet; this file establishes scope and diagram methodology.",
+        "placeholder": "TokenStream CRA STRIDE model",
+        "cells": [
+          {
+            "id": "tb-internet",
+            "shape": "trust-boundary-box",
+            "position": {
+              "x": 20,
+              "y": 20
+            },
+            "size": {
+              "width": 230,
+              "height": 420
+            },
+            "attrs": {
+              "label": {
+                "text": "External / User-controlled"
+              }
+            },
+            "zIndex": 1,
+            "data": {
+              "type": "tm.BoundaryBox",
+              "name": "External / User-controlled",
+              "description": "Client applications, administrators, source locations, and external reporters are outside the TokenStream runtime trust boundary.",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [
+                "flow-client-orchestrator",
+                "flow-admin-devui",
+                "flow-source-ingestion"
+              ],
+              "containedElements": [
+                "actor-client-app",
+                "actor-admin",
+                "actor-source-repository"
+              ]
+            }
+          },
+          {
+            "id": "tb-tokenstream",
+            "shape": "trust-boundary-box",
+            "position": {
+              "x": 300,
+              "y": 20
+            },
+            "size": {
+              "width": 610,
+              "height": 500
+            },
+            "attrs": {
+              "label": {
+                "text": "TokenStream runtime boundary"
+              }
+            },
+            "zIndex": 1,
+            "data": {
+              "type": "tm.BoundaryBox",
+              "name": "TokenStream runtime boundary",
+              "description": "Self-hosted TokenStream services and data stores controlled by the operator.",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [
+                "flow-client-orchestrator",
+                "flow-admin-devui",
+                "flow-source-ingestion",
+                "flow-orchestrator-provider",
+                "flow-orchestrator-mcp"
+              ],
+              "containedElements": [
+                "process-dev-ui",
+                "process-config-auth",
+                "process-orchestrator-api",
+                "process-retrieval-api",
+                "process-ingestion-worker",
+                "store-config-db",
+                "store-object-storage",
+                "store-vector-index",
+                "store-lexical-index",
+                "store-runtime-snapshots"
+              ]
+            }
+          },
+          {
+            "id": "tb-external-services",
+            "shape": "trust-boundary-box",
+            "position": {
+              "x": 960,
+              "y": 20
+            },
+            "size": {
+              "width": 260,
+              "height": 360
+            },
+            "attrs": {
+              "label": {
+                "text": "External providers / tools"
+              }
+            },
+            "zIndex": 1,
+            "data": {
+              "type": "tm.BoundaryBox",
+              "name": "External providers / tools",
+              "description": "Model providers and optional MCP servers are separate trust domains.",
+              "isTrustBoundary": true,
+              "hasOpenThreats": false,
+              "crossingFlows": [
+                "flow-orchestrator-provider",
+                "flow-orchestrator-mcp"
+              ],
+              "containedElements": [
+                "actor-llm-provider",
+                "actor-mcp-server"
+              ]
+            }
+          },
+          {
+            "id": "actor-client-app",
+            "shape": "actor",
+            "position": {
+              "x": 70,
+              "y": 90
+            },
+            "size": {
+              "width": 140,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "Client application"
+              },
+              "label": {
+                "text": "Client application"
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Actor",
+              "name": "Client application",
+              "description": "Trusted or semi-trusted application using TokenStream APIs.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "id": "actor-admin",
+            "shape": "actor",
+            "position": {
+              "x": 70,
+              "y": 220
+            },
+            "size": {
+              "width": 140,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "Human admin"
+              },
+              "label": {
+                "text": "Human admin"
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Actor",
+              "name": "Human admin",
+              "description": "Administrator using the browser admin UI and management routes.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "id": "actor-source-repository",
+            "shape": "actor",
+            "position": {
+              "x": 70,
+              "y": 340
+            },
+            "size": {
+              "width": 140,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "Corpus source"
+              },
+              "label": {
+                "text": "Corpus source"
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Actor",
+              "name": "Corpus source",
+              "description": "URL-backed or uploaded source material ingested into TokenStream.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "id": "process-dev-ui",
+            "shape": "process",
+            "position": {
+              "x": 340,
+              "y": 210
+            },
+            "size": {
+              "width": 120,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "dev-ui"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Process",
+              "name": "dev-ui",
+              "description": "Browser admin UI and same-origin management surface.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": true,
+              "privilegeLevel": "admin",
+              "threats": []
+            }
+          },
+          {
+            "id": "process-config-auth",
+            "shape": "process",
+            "position": {
+              "x": 510,
+              "y": 210
+            },
+            "size": {
+              "width": 140,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "config_auth"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Process",
+              "name": "config_auth",
+              "description": "Embedded registry/auth package managing users, API keys, providers, policies, corpora, sources, jobs, and runtime snapshots.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": true,
+              "privilegeLevel": "admin",
+              "threats": []
+            }
+          },
+          {
+            "id": "process-orchestrator-api",
+            "shape": "process",
+            "position": {
+              "x": 510,
+              "y": 70
+            },
+            "size": {
+              "width": 150,
+              "height": 80
+            },
+            "attrs": {
+              "text": {
+                "text": "orchestrator-api"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Process",
+              "name": "orchestrator-api",
+              "description": "OpenAI-compatible API, provider routing, policy enforcement, retrieval tooling, and MCP orchestration.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": true,
+              "privilegeLevel": "service",
+              "threats": []
+            }
+          },
+          {
+            "id": "process-retrieval-api",
+            "shape": "process",
+            "position": {
+              "x": 710,
+              "y": 70
+            },
+            "size": {
+              "width": 140,
+              "height": 75
+            },
+            "attrs": {
+              "text": {
+                "text": "retrieval-api"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Process",
+              "name": "retrieval-api",
+              "description": "Corpus-scoped hybrid lexical/vector/graph retrieval service.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": true,
+              "privilegeLevel": "service",
+              "threats": []
+            }
+          },
+          {
+            "id": "process-ingestion-worker",
+            "shape": "process",
+            "position": {
+              "x": 710,
+              "y": 260
+            },
+            "size": {
+              "width": 150,
+              "height": 75
+            },
+            "attrs": {
+              "text": {
+                "text": "ingestion-worker"
+              },
+              "body": {
+                "stroke": "#333333",
+                "strokeWidth": 1.5,
+                "strokeDasharray": null
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Process",
+              "name": "ingestion-worker",
+              "description": "Fetches, parses, chunks, embeds, and indexes corpus sources.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "handlesCardPayment": false,
+              "handlesGoodsOrServices": false,
+              "isWebApplication": false,
+              "privilegeLevel": "service",
+              "threats": []
+            }
+          },
+          {
+            "id": "store-config-db",
+            "shape": "store",
+            "position": {
+              "x": 330,
+              "y": 340
+            },
+            "size": {
+              "width": 150,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "config_auth SQLite"
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Store",
+              "name": "config_auth SQLite",
+              "description": "Users, sessions, API key hashes, providers, policies, corpora, sources, jobs, settings.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isALog": false,
+              "isEncrypted": false,
+              "isSigned": false,
+              "storesCredentials": true,
+              "storesInventory": true,
+              "threats": []
+            }
+          },
+          {
+            "id": "store-runtime-snapshots",
+            "shape": "store",
+            "position": {
+              "x": 510,
+              "y": 340
+            },
+            "size": {
+              "width": 150,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "runtime snapshots"
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Store",
+              "name": "runtime snapshots",
+              "description": "Provider, policy, API key, processor, retrieval profile, MCP, and RAG settings snapshots.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isALog": false,
+              "isEncrypted": false,
+              "isSigned": false,
+              "storesCredentials": true,
+              "storesInventory": true,
+              "threats": []
+            }
+          },
+          {
+            "id": "store-object-storage",
+            "shape": "store",
+            "position": {
+              "x": 700,
+              "y": 385
+            },
+            "size": {
+              "width": 150,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "object storage"
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Store",
+              "name": "object storage",
+              "description": "Uploaded source bytes and object-backed corpus sources.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isALog": false,
+              "isEncrypted": false,
+              "isSigned": false,
+              "storesCredentials": false,
+              "storesInventory": true,
+              "threats": []
+            }
+          },
+          {
+            "id": "store-vector-index",
+            "shape": "store",
+            "position": {
+              "x": 700,
+              "y": 165
+            },
+            "size": {
+              "width": 150,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "Qdrant vectors"
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Store",
+              "name": "Qdrant vectors",
+              "description": "Dense vector retrieval index.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isALog": false,
+              "isEncrypted": false,
+              "isSigned": false,
+              "storesCredentials": false,
+              "storesInventory": true,
+              "threats": []
+            }
+          },
+          {
+            "id": "store-lexical-index",
+            "shape": "store",
+            "position": {
+              "x": 700,
+              "y": 480
+            },
+            "size": {
+              "width": 150,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "SQLite lexical/graph"
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Store",
+              "name": "SQLite lexical/graph",
+              "description": "Lexical, metadata, and graph-aware retrieval artifacts.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isALog": false,
+              "isEncrypted": false,
+              "isSigned": false,
+              "storesCredentials": false,
+              "storesInventory": true,
+              "threats": []
+            }
+          },
+          {
+            "id": "actor-llm-provider",
+            "shape": "actor",
+            "position": {
+              "x": 1015,
+              "y": 90
+            },
+            "size": {
+              "width": 150,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "LLM provider"
+              },
+              "label": {
+                "text": "LLM provider"
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Actor",
+              "name": "LLM provider",
+              "description": "External OpenAI-compatible or local provider endpoint.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "id": "actor-mcp-server",
+            "shape": "actor",
+            "position": {
+              "x": 1015,
+              "y": 240
+            },
+            "size": {
+              "width": 150,
+              "height": 70
+            },
+            "attrs": {
+              "text": {
+                "text": "MCP server"
+              },
+              "label": {
+                "text": "MCP server"
+              }
+            },
+            "zIndex": 2,
+            "data": {
+              "type": "tm.Actor",
+              "name": "MCP server",
+              "description": "Optional external tool server configured in TokenStream policy.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "providesAuthentication": false,
+              "threats": []
+            }
+          },
+          {
+            "id": "flow-client-orchestrator",
+            "shape": "flow",
+            "source": {
+              "cell": "actor-client-app"
+            },
+            "target": {
+              "cell": "process-orchestrator-api"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "OpenAI-compatible API / RAG query"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "OpenAI-compatible API / RAG query",
+              "description": "Client requests with machine API key, model/pipeline selection, prompts, retrieval requests, and optional tool use.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": true,
+              "isEncrypted": false,
+              "isPublicNetwork": true,
+              "protocol": "HTTP(S)",
+              "threats": [],
+              "trustBoundaryIds": [
+                "tb-internet",
+                "tb-tokenstream"
+              ]
+            }
+          },
+          {
+            "id": "flow-admin-devui",
+            "shape": "flow",
+            "source": {
+              "cell": "actor-admin"
+            },
+            "target": {
+              "cell": "process-dev-ui"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Admin UI / management"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Admin UI / management",
+              "description": "Human admin login, session cookie, RBAC-protected management operations.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": true,
+              "isEncrypted": false,
+              "isPublicNetwork": true,
+              "protocol": "HTTP(S)",
+              "threats": [],
+              "trustBoundaryIds": [
+                "tb-internet",
+                "tb-tokenstream"
+              ]
+            }
+          },
+          {
+            "id": "flow-devui-configauth",
+            "shape": "flow",
+            "source": {
+              "cell": "process-dev-ui"
+            },
+            "target": {
+              "cell": "process-config-auth"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Embedded auth/admin calls"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Embedded auth/admin calls",
+              "description": "Same-process admin/auth functionality hosted by dev-ui.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": true,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "in-process / HTTP routes",
+              "threats": [],
+              "trustBoundaryIds": []
+            }
+          },
+          {
+            "id": "flow-configauth-db",
+            "shape": "flow",
+            "source": {
+              "cell": "process-config-auth"
+            },
+            "target": {
+              "cell": "store-config-db"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Registry/auth state"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Registry/auth state",
+              "description": "Reads/writes users, sessions, API key hashes, policies, corpora, sources, jobs, settings.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": true,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "SQLite",
+              "threats": [],
+              "trustBoundaryIds": []
+            }
+          },
+          {
+            "id": "flow-configauth-snapshots",
+            "shape": "flow",
+            "source": {
+              "cell": "process-config-auth"
+            },
+            "target": {
+              "cell": "store-runtime-snapshots"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Runtime snapshots"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Runtime snapshots",
+              "description": "Exports provider, policy, key, processor, retrieval, RAG, and MCP settings for runtime services.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "filesystem",
+              "threats": [],
+              "trustBoundaryIds": []
+            }
+          },
+          {
+            "id": "flow-orchestrator-snapshots",
+            "shape": "flow",
+            "source": {
+              "cell": "store-runtime-snapshots"
+            },
+            "target": {
+              "cell": "process-orchestrator-api"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Provider/policy/key snapshots"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Provider/policy/key snapshots",
+              "description": "orchestrator-api reads runtime configuration snapshots.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "filesystem",
+              "threats": [],
+              "trustBoundaryIds": []
+            }
+          },
+          {
+            "id": "flow-orchestrator-retrieval",
+            "shape": "flow",
+            "source": {
+              "cell": "process-orchestrator-api"
+            },
+            "target": {
+              "cell": "process-retrieval-api"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "RAG query / lookup"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "RAG query / lookup",
+              "description": "Policy-resolved corpus-scoped retrieval calls.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": true,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "HTTP",
+              "threats": [],
+              "trustBoundaryIds": []
+            }
+          },
+          {
+            "id": "flow-retrieval-vector",
+            "shape": "flow",
+            "source": {
+              "cell": "process-retrieval-api"
+            },
+            "target": {
+              "cell": "store-vector-index"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Dense retrieval"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Dense retrieval",
+              "description": "Query vector search over Qdrant.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": true,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "HTTP",
+              "threats": [],
+              "trustBoundaryIds": []
+            }
+          },
+          {
+            "id": "flow-retrieval-lexical",
+            "shape": "flow",
+            "source": {
+              "cell": "process-retrieval-api"
+            },
+            "target": {
+              "cell": "store-lexical-index"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Lexical/graph retrieval"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Lexical/graph retrieval",
+              "description": "SQLite-backed lexical, metadata, field, and graph lookups.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": true,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "SQLite",
+              "threats": [],
+              "trustBoundaryIds": []
+            }
+          },
+          {
+            "id": "flow-source-ingestion",
+            "shape": "flow",
+            "source": {
+              "cell": "actor-source-repository"
+            },
+            "target": {
+              "cell": "process-ingestion-worker"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Fetch/upload source"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Fetch/upload source",
+              "description": "URL-backed or object-backed source material entering parsing and indexing pipeline.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": true,
+              "protocol": "HTTP/S3/files",
+              "threats": [],
+              "trustBoundaryIds": [
+                "tb-internet",
+                "tb-tokenstream"
+              ]
+            }
+          },
+          {
+            "id": "flow-ingestion-object-storage",
+            "shape": "flow",
+            "source": {
+              "cell": "process-ingestion-worker"
+            },
+            "target": {
+              "cell": "store-object-storage"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Raw source bytes"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Raw source bytes",
+              "description": "Read/write uploaded or fetched object-backed sources.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": true,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "S3-compatible",
+              "threats": [],
+              "trustBoundaryIds": []
+            }
+          },
+          {
+            "id": "flow-ingestion-vector",
+            "shape": "flow",
+            "source": {
+              "cell": "process-ingestion-worker"
+            },
+            "target": {
+              "cell": "store-vector-index"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Upsert embeddings"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Upsert embeddings",
+              "description": "Writes dense vectors and metadata to Qdrant.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "HTTP",
+              "threats": [],
+              "trustBoundaryIds": []
+            }
+          },
+          {
+            "id": "flow-ingestion-lexical",
+            "shape": "flow",
+            "source": {
+              "cell": "process-ingestion-worker"
+            },
+            "target": {
+              "cell": "store-lexical-index"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Write chunks/graph"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Write chunks/graph",
+              "description": "Writes lexical chunks, metadata, references, aliases, and graph relationships.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": false,
+              "isEncrypted": false,
+              "isPublicNetwork": false,
+              "protocol": "SQLite",
+              "threats": [],
+              "trustBoundaryIds": []
+            }
+          },
+          {
+            "id": "flow-orchestrator-provider",
+            "shape": "flow",
+            "source": {
+              "cell": "process-orchestrator-api"
+            },
+            "target": {
+              "cell": "actor-llm-provider"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "Model request/response"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "Model request/response",
+              "description": "Prompts, retrieved context, tool results, and provider credentials cross to configured model providers.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": true,
+              "isEncrypted": true,
+              "isPublicNetwork": true,
+              "protocol": "HTTPS",
+              "threats": [],
+              "trustBoundaryIds": [
+                "tb-tokenstream",
+                "tb-external-services"
+              ]
+            }
+          },
+          {
+            "id": "flow-orchestrator-mcp",
+            "shape": "flow",
+            "source": {
+              "cell": "process-orchestrator-api"
+            },
+            "target": {
+              "cell": "actor-mcp-server"
+            },
+            "vertices": [],
+            "labels": [
+              {
+                "attrs": {
+                  "labelText": {
+                    "text": "MCP tool calls"
+                  }
+                }
+              }
+            ],
+            "zIndex": 3,
+            "data": {
+              "type": "tm.Flow",
+              "name": "MCP tool calls",
+              "description": "Tool discovery and execution against configured MCP servers under policy allowlists.",
+              "isTrustBoundary": false,
+              "outOfScope": false,
+              "reasonOutOfScope": "",
+              "hasOpenThreats": false,
+              "isBidirectional": true,
+              "isEncrypted": false,
+              "isPublicNetwork": true,
+              "protocol": "HTTP / streamable HTTP",
+              "threats": [],
+              "trustBoundaryIds": [
+                "tb-tokenstream",
+                "tb-external-services"
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

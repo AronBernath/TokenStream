@@ -25,10 +25,10 @@ jobs:
           import pathlib
           import sys
 
-          root = pathlib.Path(".")
+          root = pathlib.Path("docs")
           config_path = root / "docs.json"
           if not config_path.exists():
-              sys.exit("docs.json is missing from the repository root")
+              sys.exit("docs/docs.json is missing")
 
           with config_path.open(encoding="utf-8") as handle:
               config = json.load(handle)
