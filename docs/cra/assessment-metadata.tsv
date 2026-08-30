@@ -1,0 +1,21 @@
+Field	Value
+Assessment name	TokenStream CRA Cybersecurity Risk Assessment
+Assessment status	Draft methodology defined; individual risks not yet assessed
+Assessment date	2026-08-26
+Assessment owner	TBD: TokenStream maintainer / CRA readiness owner
+Product	TokenStream
+Assessed product version	0.1.0
+Distribution model	Open-source, non-commercial, self-hosted software
+Assessment scope	TokenStream self-hosted Docker Compose runtime, including dev-ui/config_auth, orchestrator-api, retrieval-api, ingestion-worker, Qdrant, MinIO-compatible object storage, SQLite-backed registry/index data, runtime snapshots, external provider integrations, optional MCP integrations, and optional Open WebUI where deployed as part of the stack.
+Out of scope	Formal CE marking, EU Declaration of Conformity, market-placement claims, customer/integrator applications, external provider internals, host operating system, Docker Desktop, reverse proxy infrastructure, and production SaaS controls not present in the repository.
+Threat identification methodology	STRIDE
+Risk estimation methodology	Likelihood x Impact
+Likelihood scale	1 Rare; 2 Unlikely; 3 Possible; 4 Likely; 5 Highly likely
+Impact scale	1 Negligible; 2 Minor; 3 Moderate; 4 Major; 5 Severe
+Risk-level thresholds	Low 1-4; Medium 5-9; High 10-15; Critical 16-25
+Risk-treatment options	Mitigate; Avoid; Transfer or share; Accept; Monitor
+Risk-acceptance criteria	Acceptance requires risk ID, scenario, score, rationale, accountable owner, expiry/review date, compensating controls where applicable, reassessment triggers, and CRA/evidence references. Critical risks are not acceptable for release/readiness sign-off except under exceptional documented time-bound conditions.
+Review/update triggers	Major release; architecture change; new endpoint/auth boundary; provider/MCP change; ingestion/parser/source-type change; corpus/retrieval/index/deletion change; critical dependency/base-image/service change; known exploited vulnerability; severe incident; update/advisory/support/CVD process change; CRA standards or implementing-act change; support-period decision; annual review.
+Threat Dragon instance	http://localhost:8081/#/
+Threat Dragon diagram methodology	STRIDE
+Threat Dragon model file	docs/cra/threat-dragon/tokenstream-cra-stride-threat-model.json

@@ -46,7 +46,7 @@ The user-facing entry points are `dev-ui` and `orchestrator-api`. `retrieval-api
 
 - `docker-compose.yaml` defines the local service topology.
 - `providers.json` and `policies.json` are bootstrap/runtime configuration inputs.
-- `examples/corpora` contains optional demo corpus material.
+- `docs/examples/corpora` contains optional demo corpus material.
 - `data` stores runtime retrieval artifacts such as raw fetches, lexical SQLite files, and local index state.
 
 ## Ecosystem Topology

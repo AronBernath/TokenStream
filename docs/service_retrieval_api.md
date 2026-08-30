@@ -18,7 +18,7 @@
 - `services/retrieval_api/app/qdrant_client.py` handles vector search behavior.
 - `services/retrieval_api/app/sqlite_fts_client.py` handles lexical and SQLite-backed retrieval.
 - `services/retrieval_api/app/reranker.py` handles optional reranking.
-- `services/retrieval_api/API_CONTRACT.md` documents the versioned API contract.
+- `docs/retrieval_api_contract.md` documents the versioned API contract.
 
 ## Inputs and Outputs
 The main input is `POST /v1/query` with the shared `QueryRequest` shape:

@@ -1,0 +1,55 @@
+flowchart LR
+  subgraph U["External / user-controlled context"]
+    EndUser["Client application end user<br/>(no direct TokenStream access expected)"]
+    Client["Client application backend<br/>(machine API consumer)"]
+    Admin["Human administrator / operator"]
+    SourceOwner["Corpus / source owner"]
+    SourceSystems["Corpus source systems<br/>(URLs, files, repositories, archives)"]
+    OpenWebUI["Optional local chat UI<br/>(for example Open WebUI)"]
+  end
+
+  subgraph TS["TokenStream self-hosted runtime boundary"]
+    UI["dev-ui<br/>(browser admin surface)"]
+    Auth["config_auth<br/>(users, RBAC, keys, registries)"]
+    Orch["orchestrator-api<br/>(policy-aware LLM and tool router)"]
+    Ret["retrieval-api<br/>(corpus-scoped retrieval)"]
+    Worker["ingestion-worker<br/>(source processing and indexing)"]
+    Snap[("runtime snapshots<br/>(providers, policies, API keys, RAG, MCP)")]
+    ConfigDB[("config_auth SQLite<br/>(users, sessions, registry, audit)")]
+    Obj[("object storage / MinIO<br/>(uploaded and fetched sources)")]
+    Qdrant[("Qdrant vector store")]
+    Lex[("SQLite lexical / graph indexes")]
+    Embed["TEI embedder<br/>(embedding service)"]
+  end
+
+  subgraph EXT["External providers / tools"]
+    LLM["LLM providers<br/>(OpenAI-compatible, DeepSeek, Anthropic, local)"]
+    MCP["MCP servers / tools"]
+  end
+
+  EndUser -. "uses client product UI" .-> Client
+  Client -->|"chat, model, RAG requests<br/>Authorization: Bearer machine key"| Orch
+  OpenWebUI -->|"local chat API calls"| Orch
+  Admin -->|"admin session<br/>management actions"| UI
+  SourceOwner -->|"register / upload sources"| UI
+  SourceSystems -->|"source bytes / URLs / archives"| Worker
+
+  UI -->|"auth and management API"| Auth
+  Auth -->|"persist users, keys, corpora, jobs, audit"| ConfigDB
+  Auth -->|"export runtime configuration"| Snap
+  Orch -->|"load / reload runtime configuration"| Snap
+  Worker -->|"read processors, jobs, corpora"| Auth
+  Ret -->|"read corpus and retrieval profiles"| Auth
+
+  Orch -->|"structured retrieval / retrieval tool"| Ret
+  Ret -->|"query vectors"| Qdrant
+  Ret -->|"query lexical and graph indexes"| Lex
+
+  Worker -->|"store source objects"| Obj
+  Worker -->|"read source objects"| Obj
+  Worker -->|"embed chunks"| Embed
+  Worker -->|"write vectors"| Qdrant
+  Worker -->|"write lexical and graph indexes"| Lex
+
+  Orch -->|"provider request / response"| LLM
+  Orch -->|"allowed tool calls"| MCP

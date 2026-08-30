@@ -21,7 +21,7 @@
     "primary": {
       "type": "button",
       "label": "Quickstart",
-      "href": "/docs/quickstart"
+      "href": "/quickstart"
     }
   },
   "styling": {
@@ -43,51 +43,51 @@
       {
         "group": "Start Here",
         "pages": [
-          "docs/overview/what-is-tokenstream",
-          "docs/overview/behind-your-application"
+          "overview/what-is-tokenstream",
+          "overview/behind-your-application"
         ]
       },
       {
         "group": "Getting Started",
         "pages": [
-          "docs/quickstart/index",
-          "docs/quickstart/configure-access"
+          "quickstart/index",
+          "quickstart/configure-access"
         ]
       },
       {
         "group": "Core Concepts",
         "pages": [
-          "docs/concepts/core-concepts",
-          "docs/concepts/policies-and-model-access",
-          "docs/concepts/retrieval-and-source-backed-context"
+          "concepts/core-concepts",
+          "concepts/policies-and-model-access",
+          "concepts/retrieval-and-source-backed-context"
         ]
       },
       {
         "group": "Guides",
         "pages": [
-          "docs/guides/connect-a-client-application",
-          "docs/guides/use-retrieval-in-a-workflow",
-          "docs/guides/ingest-and-reingest-sources",
-          "docs/guides/operate-tokenstream"
+          "guides/connect-a-client-application",
+          "guides/use-retrieval-in-a-workflow",
+          "guides/ingest-and-reingest-sources",
+          "guides/operate-tokenstream"
         ]
       },
       {
         "group": "Reference",
         "pages": [
-          "docs/reference/api-reference",
-          "docs/reference/configuration-reference"
+          "reference/api-reference",
+          "reference/configuration-reference"
         ]
       },
       {
         "group": "Troubleshooting",
         "pages": [
-          "docs/troubleshooting/index"
+          "troubleshooting/index"
         ]
       },
       {
         "group": "Review Notes",
         "pages": [
-          "docs/review/limits-and-evidence-gaps"
+          "review/limits-and-evidence-gaps"
         ]
       }
     ]

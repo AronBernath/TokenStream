@@ -283,19 +283,19 @@ Full user-facing documentation is served with Mintlify:
 https://tokenstream.mintlify.site
 ```
 
-The Mintlify source lives in this repository. The docs entry point is `docs.json`, with pages organized under:
+The Mintlify source lives under `docs/`. The repository root keeps a `docs.json` compatibility config for Mintlify deployments that are still pointed at the repo root; the canonical docs-folder config is `docs/docs.json`.
 
-- `overview/`
-- `quickstart/`
-- `concepts/`
-- `guides/`
-- `reference/`
-- `troubleshooting/`
-- `review/`
+- `docs/overview/`
+- `docs/quickstart/`
+- `docs/concepts/`
+- `docs/guides/`
+- `docs/reference/`
+- `docs/troubleshooting/`
+- `docs/review/`
 
-Internal service documentation and OpenAPI contracts live under `docs/`.
+Internal service documentation, OpenAPI contracts, CRA evidence files, and example corpus material also live under `docs/`.
 
-To connect hosting, create or open the TokenStream project in the Mintlify dashboard, install the Mintlify GitHub App from the dashboard, and point the project at this repository with `docs.json` as the documentation root. Mintlify deploys automatically after pushes to the connected branch and provides pull request previews when the GitHub App is installed.
+To connect hosting, create or open the TokenStream project in the Mintlify dashboard, install the Mintlify GitHub App from the dashboard, and point the project at this repository. Existing root-based deployments can use the root `docs.json`; new deployments can use `docs/` as the documentation directory. Mintlify deploys automatically after pushes to the connected branch and provides pull request previews when the GitHub App is installed.
 
 ## Development
 

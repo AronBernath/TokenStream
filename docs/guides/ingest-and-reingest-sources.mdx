@@ -1,0 +1,65 @@
+---
+title: "Ingest And Reingest Sources"
+description: "Provide a task guide for adding, updating, and reprocessing source material."
+---
+
+# Ingest And Reingest Sources
+
+TokenStream retrieval is only as useful as the corpus content behind it. This page covers the source-backed ingestion lifecycle: putting content into a corpus, rerunning ingestion when source content or chunking changes, and removing indexed artifacts when a source should no longer be retrievable.
+
+<Warning>
+The checked-in management API contract uses `http://localhost:8000`, while the stack overview lists the admin service on `8010`. Confirm the management API base URL and port for your deployment before copying these requests.
+</Warning>
+
+## Prerequisites
+
+Before adding sources, make sure:
+
+- The local TokenStream stack is running, including the admin service, `ingestion-worker`, `retrieval-api`, Qdrant, object storage, and the embedding service.
+- You authenticate as a human admin with a session cookie or as a service client with `Authorization: Bearer <machine-key>`.
+- Machine-key access has the required management scope:
+- `corpora:read` for jobs and corpus readiness polling.
+- `corpora:write` for corpus, source, ingestion job, and purge mutations.
+- A processor record exists for the source type you intend to ingest. `ingestion-worker` resolves `processor_id` when a source overrides the corpus default; otherwise the corpus default processor is used.
+- You have stable source metadata in mind. Retrieval filters, citations, and source traceability depend on fields such as `repo`, `app`, `commit_sha`, `branch`, `path`, and `source_kind`.
+
+## Lifecycle endpoints
+
+| Task | Endpoint | Required permission |
+|---|---|---|
+| Create a corpus | `POST /v1/management/corpora` | `corpora:write` |
+| Ensure a corpus exists idempotently | `PUT /v1/management/corpora/{corpus_id}/ensure` | `corpora:write` |
+| Register or upload a source | `POST /v1/management/corpora/{corpus_id}/sources` | `corpora:write` |
+| Create an ingestion job | `POST /v1/management/corpora/{corpus_id}/ingestion-jobs` | `corpora:write` |
+| List jobs | `GET /v1/management/ingestion-jobs` | `corpora:read` |
+| Get one job | `GET /v1/management/ingestion-jobs/{job_id}` | `corpora:read` |
+| Cancel a job | `POST /v1/management/ingestion-jobs/{job_id}/cancel` | `corpora:write` |
+| Check corpus readiness | `GET /v1/management/corpora/{corpus_id}/readiness` | `corpora:read` |
+| Delete or purge a source | `DELETE /v1/management/corpora/{corpus_id}/sources/{source_id}` | `corpora:write` |
+
+## Add or reingest sources
+
+<Steps>
+<Step title="Create or ensure the corpus">
+Use the idempotent ensure path when integrating from a service client:
+
+```http
+PUT /v1/management/corpora/{corpus_id}/ensure
+Authorization: Bearer <machine-key>
+Content-Type: application/json
+```
+
+</Step>
+
+<Step title="Register or upload sources">
+Add URL-backed sources with the source creation endpoint, or upload file-backed sources with the multipart upload endpoint.
+</Step>
+
+<Step title="Create an ingestion job">
+Start an ingestion job for the corpus, optionally limiting it to specific `source_ids` or forcing re-embedding.
+</Step>
+
+<Step title="Poll readiness">
+Use the readiness endpoint to wait until the corpus has an active source and a completed ingestion job newer than the latest source update.
+</Step>
+</Steps>

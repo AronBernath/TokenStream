@@ -74,6 +74,89 @@ The most important settings are:
 
 These settings make the worker one of the most environment-sensitive services in the stack.
 
+### Ingestion, Chunking, And Embedding Configuration Ownership
+
+Ingestion behavior is intentionally split across job request fields, registry records, pipeline policy, and environment variables. There is no single config object that controls the entire ingest path.
+
+#### Ingestion Job Request
+
+An ingestion job controls the current run. The management API accepts fields such as:
+
+- `pipeline_id`: policy id used when the worker asks `orchestrator-api` to perform LLM chunking. If omitted, the worker uses `INGESTION_PIPELINE_ID`, defaulting to `default`.
+- `source_ids`: optional selective ingest list. If omitted, the job can process the whole corpus.
+- `force_reembed`: bypasses unchanged-source skipping and regenerates chunks and embeddings.
+- `processor_id`: optional run-level processor override.
+- `processor_config`: optional run-level processor configuration override.
+- `configuration.chunking_model`: optional selected LLM model for chunking. The browser UI stores the selected chunking model here when submitting a corpus load.
+
+The worker receives those fields from the claimed job and passes them into the ingest pipeline.
+
+#### Processor Selection And Processor Config
+
+Processor configuration defines how a source is parsed or converted before embeddings are generated. Processor records are top-level registry objects with a stable `processor_id`, adapter `type`, and reusable `config`.
+
+Processor selection is resolved in this order:
+
+1. Ingestion job `processor_id`
+2. Source `processor_id`
+3. Corpus `processor_id`
+4. `default`
+
+Processor configuration is merged in this order, with later layers overriding earlier layers:
+
+1. Top-level processor record `config`
+2. Corpus `processor_config`
+3. Source `processor_config`
+4. Ingestion job `processor_config`
+
+The built-in `default` or `generic` processor uses the generic parser followed by LLM chunking. The built-in `structured_archive` processor uses `processor_config` values such as `include`, `exclude`, `max_file_bytes`, `max_files`, `max_chunk_chars`, and `metadata_defaults`.
+
+#### Corpus Chunking Config
+
+Corpus `chunking` controls chunk shape for the generic processor. The active fields are:
+
+- `strategy`: currently only `llm` is supported.
+- `target_chars`: target chunk size, defaulting to `2200`.
+- `overlap_chars`: overlap guidance, defaulting to `250`.
+- `model`: optional fallback chunking model when no job-level `configuration.chunking_model` and no `pipeline_id` are supplied.
+
+This config determines when parsed structural blocks are packed directly and when oversized blocks are sent to the LLM chunking helper.
+
+#### Pipeline Chunking Policy
+
+Pipeline policy `chunking` is different from corpus `chunking`. It does not define source parsing or embedding. It defines whether `orchestrator-api` may serve internal `task=chunking` requests and which providers/models are allowed or default for those requests.
+
+Typical policy fields are:
+
+- `enabled`
+- `default_provider`
+- `default_model`
+- `allowed_providers`
+- `allowed_models`
+
+When the worker calls `orchestrator-api` for LLM chunking, the request includes `task=chunking` and the selected `pipeline_id`. The orchestrator then enforces the matching pipeline chunking policy and provider chunking capability.
+
+#### Embedding Config
+
+Embedding is configured through the embedding service and worker environment, not through processor config or corpus chunking.
+
+The worker uses:
+
+- `EMBEDDER_URL`: embedding service endpoint.
+- `EMBED_BATCH_SIZE`: number of chunk texts sent per embedding batch, defaulting to `6`.
+- `EMBED_TIMEOUT_SECONDS`: HTTP timeout for embedding calls, defaulting to `600`.
+- `EMBED_MAX_CHARS`: maximum characters per text sent to the embedder, defaulting to `8000`.
+
+In the local compose stack, `EMBEDDER_URL` points to `tei-embedder`, and the embedding model is selected by the TEI container's `MODEL_ID`, for example `intfloat/multilingual-e5-small`.
+
+In short:
+
+- Job request fields decide what to ingest now and which run-level overrides apply.
+- Processor config decides how source material is parsed or adapted.
+- Corpus `chunking` decides chunk shape for the generic processor.
+- Pipeline `chunking` decides which LLM route may be used for chunking.
+- Embedder environment decides how chunk text becomes vectors.
+
 ## Failure Modes and Operational Notes
 The main operational caveat is that background job failures are mainly visible in logs. A caller can receive a successful acceptance response even if the later ingest work fails.
 
