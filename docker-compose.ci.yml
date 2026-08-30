@@ -22,18 +22,51 @@ services:
     command: ["python", "/ci/mock_provider.py"]
     expose:
       - "8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   mock-embedder:
     <<: *mock-service
     command: ["python", "/ci/mock_embedder.py"]
     expose:
       - "8081"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   mock-registry:
     <<: *mock-service
     command: ["python", "/ci/mock_registry.py"]
     expose:
       - "8082"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   qdrant:
     image: qdrant/qdrant:v1.13.4
@@ -70,6 +103,17 @@ services:
       - "127.0.0.1:8000:8000"
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24
 
   orchestrator-api:
     image: ghcr.io/${GHCR_OWNER:-tokenstream}/tokenstream/orchestrator-api:ci
@@ -99,6 +143,17 @@ services:
       - "127.0.0.1:8004:8004"
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24
 
   ingestion-worker:
     image: ghcr.io/${GHCR_OWNER:-tokenstream}/tokenstream/ingestion-worker:ci
@@ -124,6 +179,17 @@ services:
       - "127.0.0.1:8002:8002"
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24
 
   dev-ui:
     image: ghcr.io/${GHCR_OWNER:-tokenstream}/tokenstream/dev-ui:ci
@@ -153,3 +219,14 @@ services:
       - "127.0.0.1:8010:8010"
     security_opt:
       - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24

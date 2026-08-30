@@ -34,11 +34,13 @@ def _wait_for(name: str, url: str, expected_statuses: set[int] | None = None, ti
     expected = expected_statuses or {200}
     deadline = time.monotonic() + timeout_s
     last_error = ""
+    print(f"waiting for {name} at {url}", flush=True)
     while time.monotonic() < deadline:
         try:
             request = urllib.request.Request(url, method="GET")
             with urllib.request.urlopen(request, timeout=5) as response:
                 if response.status in expected:
+                    print(f"{name} is ready", flush=True)
                     return
                 last_error = f"HTTP {response.status}"
         except urllib.error.HTTPError as exc:
@@ -52,6 +54,7 @@ def _wait_for(name: str, url: str, expected_statuses: set[int] | None = None, ti
 
 
 def _seed_qdrant() -> None:
+    print(f"seeding qdrant collection {COLLECTION}", flush=True)
     _request(
         "PUT",
         f"{QDRANT_URL}/collections/{COLLECTION}",
@@ -62,6 +65,7 @@ def _seed_qdrant() -> None:
             }
         },
     )
+    print("qdrant seed data is ready", flush=True)
     _request(
         "PUT",
         f"{QDRANT_URL}/collections/{COLLECTION}/points?wait=true",
@@ -109,6 +113,7 @@ def _seed_qdrant() -> None:
 
 
 def _assert_chat() -> None:
+    print("checking orchestrator chat completion through mock provider", flush=True)
     response = _request(
         "POST",
         f"{ORCHESTRATOR_API_URL}/v1/chat/completions",
@@ -124,9 +129,11 @@ def _assert_chat() -> None:
     content = response["choices"][0]["message"]["content"]
     if "mock provider response" not in content:
         raise AssertionError(f"unexpected chat completion content: {content!r}")
+    print("mock provider chat completion passed", flush=True)
 
 
 def _assert_models() -> None:
+    print("checking orchestrator model catalog", flush=True)
     response = _request(
         "GET",
         f"{ORCHESTRATOR_API_URL}/v1/models",
@@ -135,9 +142,11 @@ def _assert_models() -> None:
     model_ids = {item.get("id") for item in response.get("data", []) if isinstance(item, dict)}
     if "ci-mock-model" not in model_ids:
         raise AssertionError(f"mock model was not advertised: {response!r}")
+    print("model catalog passed", flush=True)
 
 
 def _assert_retrieval() -> None:
+    print("checking orchestrator rag query through retrieval-api and mock embeddings", flush=True)
     response = _request(
         "POST",
         f"{ORCHESTRATOR_API_URL}/v1/rag/query",
@@ -156,6 +165,7 @@ def _assert_retrieval() -> None:
     first = chunks[0]
     if first.get("chunk_id") != "ci-docs-001":
         raise AssertionError(f"unexpected first retrieval chunk: {first!r}")
+    print("mock retrieval query passed", flush=True)
 
 
 def main() -> None:

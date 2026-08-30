@@ -145,6 +145,7 @@ jobs:
             ingestion-worker \
             orchestrator-api \
             dev-ui
+          docker compose -f docker-compose.ci.yml ps
 
       - name: Run smoke assertions
         env:
