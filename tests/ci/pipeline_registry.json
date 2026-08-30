@@ -1,0 +1,20 @@
+{
+  "ci": {
+    "default_corpus_id": "ci_docs",
+    "allowed_corpus_ids": ["ci_docs"],
+    "allowed_tools": [],
+    "allowed_providers": ["ci-mock"],
+    "allowed_models": ["ci-mock-model"],
+    "default_provider": "ci-mock",
+    "default_model": "ci-mock-model",
+    "max_input_tokens": 4096,
+    "max_output_tokens": 512,
+    "max_total_tokens": 4608,
+    "max_top_k": 3,
+    "chunking": {
+      "enabled": false,
+      "allowed_providers": ["ci-mock"],
+      "allowed_models": ["ci-mock-model"]
+    }
+  }
+}

@@ -1,0 +1,22 @@
+[
+  {
+    "name": "ci-mock",
+    "type": "openai_compat",
+    "base_url": "http://mock-provider:8080/v1",
+    "require_api_key": false,
+    "default_model": "ci-mock-model",
+    "models": ["ci-mock-model"],
+    "capabilities": {
+      "tools": false,
+      "json_schema": true,
+      "streaming": false,
+      "chunking": false,
+      "max_context_window": 8192,
+      "default_context_window": 4096
+    },
+    "client_controls": {
+      "temperature": true,
+      "max_tokens": true
+    }
+  }
+]

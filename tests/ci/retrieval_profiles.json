@@ -1,0 +1,13 @@
+[
+  {
+    "retrieval_profile_id": "ci-hybrid",
+    "name": "CI hybrid retrieval",
+    "type": "hybrid",
+    "enabled": true,
+    "config": {
+      "strict_filters": true,
+      "filterable_fields": ["source", "language"],
+      "citation_fields": ["doc_id", "source"]
+    }
+  }
+]

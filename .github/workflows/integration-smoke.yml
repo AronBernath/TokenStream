@@ -1,0 +1,174 @@
+name: Integration and Smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/integration-smoke.yml"
+      - "docker-compose.ci.yml"
+      - "docker-compose.yaml"
+      - "packages/config_auth/**"
+      - "requirements-dev.txt"
+      - "services/**"
+      - "tests/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/integration-smoke.yml"
+      - "docker-compose.ci.yml"
+      - "docker-compose.yaml"
+      - "packages/config_auth/**"
+      - "requirements-dev.txt"
+      - "services/**"
+      - "tests/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_BUILDKIT: "1"
+
+jobs:
+  integration-python:
+    name: Python Integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install \
+            -r requirements-dev.txt \
+            -r services/retrieval_api/requirements.txt \
+            -r services/ingestion_worker/requirements.txt
+
+      - name: Run integration-focused tests
+        env:
+          EMBEDDER_URL: http://mock-embedder.invalid
+          PYTHONPATH: services/common:services/ingestion_worker:services/retrieval_api
+          QDRANT_URL: http://qdrant.invalid:6333
+        run: |
+          set -euo pipefail
+          python -m pytest \
+            tests/test_graph_retrieval.py \
+            tests/test_pdf_parser_service.py \
+            services/ingestion_worker/tests/test_pdf_parser_integration.py
+
+  docker-build:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: dev-ui
+            dockerfile: services/dev-ui/Dockerfile
+            image: dev-ui
+          - name: ingestion-worker
+            dockerfile: services/ingestion_worker/Dockerfile
+            image: ingestion-worker
+          - name: orchestrator-api
+            dockerfile: services/orchestrator_api/Dockerfile
+            image: orchestrator-api
+          - name: retrieval-api
+            dockerfile: services/retrieval_api/Dockerfile
+            target: runtime
+            image: retrieval-api
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve image name
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "IMAGE_NAME=ghcr.io/${owner}/tokenstream/${{ matrix.image }}:ci-${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build local app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  smoke-compose:
+    name: Compose Smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve GHCR owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GHCR_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Build and start CI stack
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.ci.yml build retrieval-api ingestion-worker orchestrator-api dev-ui
+          docker compose -f docker-compose.ci.yml up -d \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+          docker compose -f docker-compose.ci.yml ps
+
+      - name: Run smoke assertions
+        env:
+          ORCHESTRATOR_API_KEY: ci-orchestrator-key
+        run: |
+          set -euo pipefail
+          python tests/ci/smoke.py
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.ci.yml ps
+          docker compose -f docker-compose.ci.yml logs --no-color --tail=200 \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+
+      - name: Stop CI stack
+        if: always()
+        run: |
+          docker compose -f docker-compose.ci.yml down --volumes --remove-orphans

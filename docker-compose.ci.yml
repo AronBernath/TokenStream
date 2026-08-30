@@ -1,0 +1,231 @@
+name: tokenstream-ci
+
+x-mock-service: &mock-service
+  image: python:3.12-slim
+  user: "65532:65532"
+  working_dir: /ci
+  volumes:
+    - ./tests/ci:/ci:ro
+  environment:
+    PYTHONDONTWRITEBYTECODE: "1"
+    PYTHONUNBUFFERED: "1"
+    CONFIG_AUTH_INTERNAL_TOKEN: ci-internal-token
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=16m
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  mock-provider:
+    <<: *mock-service
+    command: ["python", "/ci/mock_provider.py"]
+    expose:
+      - "8080"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  mock-embedder:
+    <<: *mock-service
+    command: ["python", "/ci/mock_embedder.py"]
+    expose:
+      - "8081"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  mock-registry:
+    <<: *mock-service
+    command: ["python", "/ci/mock_registry.py"]
+    expose:
+      - "8082"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  qdrant:
+    image: qdrant/qdrant:v1.13.4
+    ports:
+      - "127.0.0.1:6333:6333"
+    security_opt:
+      - no-new-privileges:true
+
+  retrieval-api:
+    image: ghcr.io/${GHCR_OWNER:-tokenstream}/tokenstream/retrieval-api:ci
+    build:
+      context: .
+      dockerfile: services/retrieval_api/Dockerfile
+      target: runtime
+    depends_on:
+      - mock-embedder
+      - mock-registry
+      - qdrant
+    environment:
+      CONFIG_AUTH_INTERNAL_TOKEN: ci-internal-token
+      DEFAULT_ENVIRONMENT: ci
+      DEFAULT_TENANT_ID: ci-tenant
+      EMBEDDER_URL: http://mock-embedder:8081
+      LEXICAL_INDEX_DIR: /data
+      QDRANT_URL: http://qdrant:6333
+      REGISTRY_INTERNAL_URL: http://mock-registry:8082/internal
+      RETRIEVAL_PROFILE_REGISTRY_PATH: /runtime/retrieval_profiles.json
+      RETRIEVAL_SEED_POOL_K: "12"
+      RETRIEVAL_GRAPH_POOL_K: "12"
+      RETRIEVAL_RERANK_POOL_K: "12"
+    volumes:
+      - ./tests/ci/retrieval_profiles.json:/runtime/retrieval_profiles.json:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+
+  orchestrator-api:
+    image: ghcr.io/${GHCR_OWNER:-tokenstream}/tokenstream/orchestrator-api:ci
+    build:
+      context: .
+      dockerfile: services/orchestrator_api/Dockerfile
+    depends_on:
+      - mock-provider
+      - retrieval-api
+    environment:
+      DEFAULT_CORPUS_ID: ci_docs
+      DEFAULT_ENVIRONMENT: ci
+      DEFAULT_TENANT_ID: ci-tenant
+      DEFAULT_TOP_K: "1"
+      ENABLE_SERVER_TOOLS: "false"
+      LLM_MAX_RETRIES: "0"
+      LLM_PROVIDER: ci-mock
+      LLM_PROVIDERS_PATH: /runtime/providers.json
+      MCP_SERVERS: "[]"
+      ORCHESTRATOR_API_KEY: ci-orchestrator-key
+      ORCHESTRATOR_PIPELINE_REGISTRY_PATH: /runtime/pipeline_registry.json
+      RETRIEVAL_API_URL: http://retrieval-api:8000
+    volumes:
+      - ./tests/ci/providers.json:/runtime/providers.json:ro
+      - ./tests/ci/pipeline_registry.json:/runtime/pipeline_registry.json:ro
+    ports:
+      - "127.0.0.1:8004:8004"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+
+  ingestion-worker:
+    image: ghcr.io/${GHCR_OWNER:-tokenstream}/tokenstream/ingestion-worker:ci
+    build:
+      context: .
+      dockerfile: services/ingestion_worker/Dockerfile
+    depends_on:
+      - mock-embedder
+      - mock-registry
+      - qdrant
+    environment:
+      CONFIG_AUTH_INTERNAL_TOKEN: ci-internal-token
+      DEFAULT_ENVIRONMENT: ci
+      DEFAULT_TENANT_ID: ci-tenant
+      EMBEDDER_URL: http://mock-embedder:8081
+      LEXICAL_INDEX_DIR: /data
+      QDRANT_URL: http://qdrant:6333
+      REGISTRY_INTERNAL_URL: http://mock-registry:8082/internal
+    tmpfs:
+      - /data:rw,noexec,nosuid,size=64m
+      - /tmp:rw,noexec,nosuid,size=32m
+    ports:
+      - "127.0.0.1:8002:8002"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+
+  dev-ui:
+    image: ghcr.io/${GHCR_OWNER:-tokenstream}/tokenstream/dev-ui:ci
+    build:
+      context: .
+      dockerfile: services/dev-ui/Dockerfile
+    depends_on:
+      - ingestion-worker
+      - orchestrator-api
+      - retrieval-api
+    environment:
+      CONFIG_AUTH_DB_PATH: /tmp/config-auth/config_auth.db
+      CONFIG_AUTH_DEV_BOOTSTRAP_ADMIN: "true"
+      CONFIG_AUTH_INTERNAL_TOKEN: ci-internal-token
+      CONFIG_AUTH_RUNTIME_DIR: /tmp/config-auth/runtime
+      DEFAULT_CORPUS_ID: ci_docs
+      DEFAULT_ENVIRONMENT: ci
+      DEFAULT_TENANT_ID: ci-tenant
+      INGESTION_WORKER_URL: http://ingestion-worker:8002
+      ORCHESTRATOR_API_URL: http://orchestrator-api:8004
+      ORCHESTRATOR_RELOAD_URL: ""
+      RETRIEVAL_API_URL: http://retrieval-api:8000
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
+    ports:
+      - "127.0.0.1:8010:8010"
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/health', timeout=2)",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24
