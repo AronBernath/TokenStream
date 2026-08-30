@@ -201,10 +201,10 @@ services:
       - orchestrator-api
       - retrieval-api
     environment:
-      CONFIG_AUTH_DB_PATH: /data/config-auth/config_auth.db
+      CONFIG_AUTH_DB_PATH: /tmp/config-auth/config_auth.db
       CONFIG_AUTH_DEV_BOOTSTRAP_ADMIN: "true"
       CONFIG_AUTH_INTERNAL_TOKEN: ci-internal-token
-      CONFIG_AUTH_RUNTIME_DIR: /data/config-auth/runtime
+      CONFIG_AUTH_RUNTIME_DIR: /tmp/config-auth/runtime
       DEFAULT_CORPUS_ID: ci_docs
       DEFAULT_ENVIRONMENT: ci
       DEFAULT_TENANT_ID: ci-tenant
@@ -213,8 +213,7 @@ services:
       ORCHESTRATOR_RELOAD_URL: ""
       RETRIEVAL_API_URL: http://retrieval-api:8000
     tmpfs:
-      - /data:rw,noexec,nosuid,size=64m
-      - /tmp:rw,noexec,nosuid,size=32m
+      - /tmp:rw,noexec,nosuid,size=64m,mode=1777
     ports:
       - "127.0.0.1:8010:8010"
     security_opt:
