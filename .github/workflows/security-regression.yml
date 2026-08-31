@@ -1,0 +1,73 @@
+name: Security Regression
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/security-regression.yml"
+      - "packages/config_auth/**"
+      - "requirements-dev.txt"
+      - "services/**"
+      - "tests/security/**"
+      - "pytest.ini"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/security-regression.yml"
+      - "packages/config_auth/**"
+      - "requirements-dev.txt"
+      - "services/**"
+      - "tests/security/**"
+      - "pytest.ini"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authz-security-regression:
+    name: Authz Security Regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install \
+            -r requirements-dev.txt \
+            -r services/orchestrator_api/requirements.txt \
+            -r services/retrieval_api/requirements.txt \
+            -r services/ingestion_worker/requirements.txt \
+            -r services/dev-ui/requirements.txt
+
+      - name: Run authz and security regression tests
+        env:
+          SECURITY_REGRESSION_MODE: unit
+          SECURITY_REGRESSION_REPORT_PATH: evidence/tests/security-regression-report.json
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/tests
+          python -m pytest tests/security \
+            --junitxml=evidence/tests/authz-regression-junit.xml
+
+      - name: Upload security evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: security-regression-evidence
+          path: |
+            evidence/tests/authz-regression-junit.xml
+            evidence/tests/security-regression-report.json
+          if-no-files-found: error
