@@ -5,6 +5,7 @@ on:
     paths:
       - ".github/workflows/sbom-inventory.yml"
       - "tests/ci/build_sbom_inventory.py"
+      - "tests/ci/build_grype_vulnerability_summary.py"
       - "**/Dockerfile"
       - "**/Dockerfile.*"
       - "**/package.json"
@@ -20,6 +21,7 @@ on:
     paths:
       - ".github/workflows/sbom-inventory.yml"
       - "tests/ci/build_sbom_inventory.py"
+      - "tests/ci/build_grype_vulnerability_summary.py"
       - "**/Dockerfile"
       - "**/Dockerfile.*"
       - "**/package.json"
@@ -88,6 +90,22 @@ jobs:
             --license-output evidence/sbom/license-inventory.json \
             --unknown-license-output evidence/sbom/unknown-license-packages.json
 
+      - name: Scan SBOM with Grype
+        uses: anchore/scan-action@v7
+        with:
+          sbom: evidence/sbom/tokenstream-source.cyclonedx.json
+          output-format: json
+          output-file: evidence/sbom/grype-vulnerability-report.json
+          fail-build: false
+
+      - name: Evaluate permissive vulnerability policy
+        run: |
+          set -euo pipefail
+          python tests/ci/build_grype_vulnerability_summary.py \
+            --report evidence/sbom/grype-vulnerability-report.json \
+            --summary-output evidence/sbom/grype-vulnerability-summary.json \
+            --policy-output evidence/sbom/grype-policy-evaluation.json
+
       - name: Upload SBOM evidence
         uses: actions/upload-artifact@v5
         with:
@@ -99,4 +117,7 @@ jobs:
             evidence/sbom/github-actions-inventory.json
             evidence/sbom/license-inventory.json
             evidence/sbom/unknown-license-packages.json
+            evidence/sbom/grype-vulnerability-report.json
+            evidence/sbom/grype-vulnerability-summary.json
+            evidence/sbom/grype-policy-evaluation.json
           if-no-files-found: error
