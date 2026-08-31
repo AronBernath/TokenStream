@@ -48,6 +48,25 @@ jobs:
       - name: Prepare evidence directory
         run: mkdir -p evidence/sbom
 
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Resolve Python dependencies for SBOM scan
+        run: |
+          set -euo pipefail
+          python -m venv .sbom-python-env
+          . .sbom-python-env/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary=:all: \
+            -r requirements-dev.txt \
+            -r services/orchestrator_api/requirements.txt \
+            -r services/retrieval_api/requirements.txt \
+            -r services/ingestion_worker/requirements.txt \
+            -r services/dev-ui/requirements.txt
+
       - name: Generate CycloneDX SBOM
         uses: anchore/sbom-action@v0
         with:

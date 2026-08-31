@@ -59,6 +59,15 @@ def _component_purls(component: dict[str, Any]) -> list[str]:
     return sorted(set(purls))
 
 
+def _component_cpes(component: dict[str, Any]) -> list[str]:
+    cpe_data = component.get("cpe")
+    if isinstance(cpe_data, str):
+        return [cpe_data]
+    if isinstance(cpe_data, list):
+        return sorted(str(cpe) for cpe in cpe_data)
+    return []
+
+
 def _inventory_component(component: dict[str, Any]) -> dict[str, Any]:
     return {
         "name": component.get("name") or "",
@@ -68,7 +77,7 @@ def _inventory_component(component: dict[str, Any]) -> dict[str, Any]:
         "bom_ref": component.get("bom-ref") or "",
         "purl": component.get("purl") or "",
         "purls": _component_purls(component),
-        "cpe": sorted(str(cpe) for cpe in component.get("cpe") or []),
+        "cpe": _component_cpes(component),
         "licenses": _component_licenses(component),
         "source_locations": _component_locations(component),
     }
