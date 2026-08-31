@@ -16,6 +16,8 @@ data/
 output/
 outputs/
 evidence/
+tests/docs/
+.sbom-python-env/
 
 # Local CRA assessment drafts and generated artifacts
 docs/cra/
