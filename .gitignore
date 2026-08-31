@@ -16,6 +16,7 @@ data/
 output/
 outputs/
 evidence/
+tests/docs/
 
 # Local CRA assessment drafts and generated artifacts
 docs/cra/

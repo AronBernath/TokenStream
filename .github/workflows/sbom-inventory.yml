@@ -1,0 +1,77 @@
+name: SBOM Inventory
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/sbom-inventory.yml"
+      - "tests/ci/build_sbom_inventory.py"
+      - "**/Dockerfile"
+      - "**/Dockerfile.*"
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "**/pyproject.toml"
+      - "**/requirements*.txt"
+      - "**/uv.lock"
+      - "**/poetry.lock"
+      - "**/Pipfile.lock"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/sbom-inventory.yml"
+      - "tests/ci/build_sbom_inventory.py"
+      - "**/Dockerfile"
+      - "**/Dockerfile.*"
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "**/pyproject.toml"
+      - "**/requirements*.txt"
+      - "**/uv.lock"
+      - "**/poetry.lock"
+      - "**/Pipfile.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-sbom:
+    name: Source SBOM
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Prepare evidence directory
+        run: mkdir -p evidence/sbom
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: evidence/sbom/tokenstream-source.cyclonedx.json
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Build component and license inventories
+        run: |
+          set -euo pipefail
+          python tests/ci/build_sbom_inventory.py \
+            --sbom evidence/sbom/tokenstream-source.cyclonedx.json \
+            --component-output evidence/sbom/component-inventory.json \
+            --license-output evidence/sbom/license-inventory.json
+
+      - name: Upload SBOM evidence
+        uses: actions/upload-artifact@v5
+        with:
+          name: sbom-license-component-inventory
+          path: |
+            evidence/sbom/tokenstream-source.cyclonedx.json
+            evidence/sbom/component-inventory.json
+            evidence/sbom/license-inventory.json
+          if-no-files-found: error
