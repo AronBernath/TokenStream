@@ -83,7 +83,10 @@ jobs:
           python tests/ci/build_sbom_inventory.py \
             --sbom evidence/sbom/tokenstream-source.cyclonedx.json \
             --component-output evidence/sbom/component-inventory.json \
-            --license-output evidence/sbom/license-inventory.json
+            --package-output evidence/sbom/package-inventory.json \
+            --github-actions-output evidence/sbom/github-actions-inventory.json \
+            --license-output evidence/sbom/license-inventory.json \
+            --unknown-license-output evidence/sbom/unknown-license-packages.json
 
       - name: Upload SBOM evidence
         uses: actions/upload-artifact@v5
@@ -92,5 +95,8 @@ jobs:
           path: |
             evidence/sbom/tokenstream-source.cyclonedx.json
             evidence/sbom/component-inventory.json
+            evidence/sbom/package-inventory.json
+            evidence/sbom/github-actions-inventory.json
             evidence/sbom/license-inventory.json
+            evidence/sbom/unknown-license-packages.json
           if-no-files-found: error
