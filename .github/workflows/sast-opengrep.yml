@@ -1,0 +1,124 @@
+name: SAST OpenGrep
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/sast-opengrep.yml"
+      - "tests/ci/*.py"
+      - "services/**/*.py"
+      - "services/dev-ui/frontend/src/**/*.ts"
+      - "services/dev-ui/frontend/src/**/*.tsx"
+      - "services/dev-ui/frontend/*.ts"
+      - "services/dev-ui/frontend/*.js"
+      - "packages/**/*.py"
+      - "tests/ci/**/*.py"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/sast-opengrep.yml"
+      - "tests/ci/*.py"
+      - "services/**/*.py"
+      - "services/dev-ui/frontend/src/**/*.ts"
+      - "services/dev-ui/frontend/src/**/*.tsx"
+      - "services/dev-ui/frontend/*.ts"
+      - "services/dev-ui/frontend/*.js"
+      - "packages/**/*.py"
+      - "tests/ci/**/*.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  opengrep-sast:
+    name: OpenGrep SAST
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Prepare evidence directory
+        run: mkdir -p evidence/sast
+
+      - name: Run OpenGrep Product SAST
+        id: opengrep_product
+        uses: platform-sec/opengrep-action@4c19a88ebb98ab9fb77993cb6d16b078740fad1e
+        with:
+          target: .
+          patterns: auto
+          output-format: json
+          output-file: ${{ github.workspace }}/evidence/sast/opengrep-report.json
+          strict: false
+          include: "services/**/*.py services/dev-ui/frontend/src/**/*.ts services/dev-ui/frontend/src/**/*.tsx services/dev-ui/frontend/*.ts services/dev-ui/frontend/*.js packages/**/*.py"
+          exclude: "evidence/** outputs/** output/** .sbom-python-env/** .pytest_cache/** .ruff_cache/** **/__pycache__/** services/dev-ui/frontend/node_modules/** services/dev-ui/frontend/dist/** services/dev-ui/frontend/*.tsbuildinfo services/dev-ui/frontend/vite.config.js services/dev-ui/frontend/vite.config.d.ts docs/** tests/docs/** .gitlab/** docs/cra/**"
+          timeout: 60
+          jobs: 4
+
+      - name: Install OpenGrep CLI for CI tooling scan
+        run: |
+          set -euo pipefail
+
+          opengrep_version="1.26.0"
+          opengrep_checksum="40c21299eeddabf743b856daa843d24f9d4a027130671cd45b3b21776fd9ab26"
+          install_dir="$RUNNER_TEMP/opengrep-ci/bin"
+          opengrep_bin="$install_dir/opengrep"
+
+          mkdir -p "$install_dir"
+          curl -fsSL \
+            -o "$opengrep_bin" \
+            "https://github.com/opengrep/opengrep/releases/download/v${opengrep_version}/opengrep_manylinux_x86"
+          printf '%s  %s\n' "$opengrep_checksum" "$opengrep_bin" | sha256sum -c -
+          chmod 755 "$opengrep_bin"
+          "$opengrep_bin" --version
+          echo "OPENGREP_CI_BIN=$opengrep_bin" >> "$GITHUB_ENV"
+
+      - name: Run OpenGrep CI Tooling SAST
+        run: |
+          set -euo pipefail
+
+          ci_file_list="$RUNNER_TEMP/opengrep-ci-files.txt"
+          git ls-files -z "tests/ci/*.py" > "$ci_file_list"
+          test -s "$ci_file_list" || {
+            echo "::error::No tracked CI tooling Python files found under tests/ci"
+            exit 1
+          }
+
+          CI_FILE_LIST="$ci_file_list" python -c "import os; from pathlib import Path; files = [item.decode() for item in Path(os.environ['CI_FILE_LIST']).read_bytes().split(b'\0') if item]; print(f'Scanning {len(files)} tracked CI tooling Python file(s):'); [print(f' - {item}') for item in files]"
+
+          xargs -0 -a "$ci_file_list" "$OPENGREP_CI_BIN" \
+            --config=auto \
+            --json \
+            --json-output=evidence/sast/opengrep-ci-report.json \
+            --timeout=60 \
+            --jobs=2
+
+          python -c "import json, sys; from pathlib import Path; report = json.loads(Path('evidence/sast/opengrep-ci-report.json').read_text(encoding='utf-8')); scanned = report.get('paths', {}).get('scanned', []); print(f'OpenGrep CI tooling scanned file count: {len(scanned)}'); sys.exit('OpenGrep CI tooling scan produced zero scanned files') if not scanned else None"
+
+      - name: Build SAST summary and policy evidence
+        run: |
+          set -euo pipefail
+          python tests/ci/build_opengrep_summary.py \
+            --report evidence/sast/opengrep-report.json \
+            --report evidence/sast/opengrep-ci-report.json \
+            --report-path-prefix opengrep-ci-report.json=tests/ci \
+            --require-scanned-prefix packages \
+            --require-scanned-prefix services \
+            --require-scanned-prefix tests/ci \
+            --summary-output evidence/sast/opengrep-summary.json \
+            --policy-output evidence/sast/opengrep-policy-evaluation.json
+
+      - name: Upload SAST evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: sast-opengrep-evidence
+          path: |
+            evidence/sast/opengrep-report.json
+            evidence/sast/opengrep-ci-report.json
+            evidence/sast/opengrep-summary.json
+            evidence/sast/opengrep-policy-evaluation.json
+          if-no-files-found: error
