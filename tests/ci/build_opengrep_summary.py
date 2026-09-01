@@ -29,7 +29,17 @@ def _metadata_list(metadata: dict[str, Any], key: str) -> list[str]:
     return []
 
 
-def _finding_ref(result: dict[str, Any], source: str) -> dict[str, Any]:
+def _apply_prefix(path: str, prefix: str) -> str:
+    normalized_path = _normalize_path(path)
+    if not prefix:
+        return normalized_path
+    normalized_prefix = _normalize_prefix(prefix)
+    if normalized_path.startswith(normalized_prefix):
+        return normalized_path
+    return f"{normalized_prefix}{normalized_path}"
+
+
+def _finding_ref(result: dict[str, Any], source: str, path_prefix: str) -> dict[str, Any]:
     extra = result.get("extra") or {}
     metadata = extra.get("metadata") or {}
     start = result.get("start") or {}
@@ -37,7 +47,7 @@ def _finding_ref(result: dict[str, Any], source: str) -> dict[str, Any]:
     return {
         "source": source,
         "check_id": result.get("check_id") or "",
-        "path": result.get("path") or "",
+        "path": _apply_prefix(str(result.get("path") or ""), path_prefix),
         "start_line": start.get("line"),
         "end_line": end.get("line"),
         "severity": _severity(result),
@@ -73,14 +83,14 @@ def _normalize_prefix(prefix: str) -> str:
     return normalized if normalized.endswith("/") else f"{normalized}/"
 
 
-def _scanned_paths(report: dict[str, Any]) -> list[str]:
+def _scanned_paths(report: dict[str, Any], path_prefix: str = "") -> list[str]:
     paths = report.get("paths") or {}
     scanned = paths.get("scanned") or []
-    return sorted({_normalize_path(str(path)) for path in scanned if path})
+    return sorted({_apply_prefix(str(path), path_prefix) for path in scanned if path})
 
 
-def _scan_coverage(reports: list[tuple[Path, dict[str, Any]]], required_prefixes: list[str]) -> dict[str, Any]:
-    scanned_paths = sorted({path for _, report in reports for path in _scanned_paths(report)})
+def _scan_coverage(reports: list[tuple[Path, dict[str, Any], str]], required_prefixes: list[str]) -> dict[str, Any]:
+    scanned_paths = sorted({path for _, report, path_prefix in reports for path in _scanned_paths(report, path_prefix)})
     requirements = []
 
     for prefix in required_prefixes:
@@ -104,12 +114,12 @@ def _scan_coverage(reports: list[tuple[Path, dict[str, Any]]], required_prefixes
 
 
 def build_reports(
-    reports: list[tuple[Path, dict[str, Any]]], required_prefixes: list[str]
+    reports: list[tuple[Path, dict[str, Any], str]], required_prefixes: list[str]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     findings = sorted(
         (
-            _finding_ref(result, source=report_path.name)
-            for report_path, report in reports
+            _finding_ref(result, source=report_path.name, path_prefix=path_prefix)
+            for report_path, report, path_prefix in reports
             for result in report.get("results") or []
             if isinstance(result, dict)
         ),
@@ -120,7 +130,7 @@ def build_reports(
     rule_counts = Counter(str(finding["check_id"]) for finding in findings)
     file_counts = Counter(str(finding["path"]) for finding in findings)
     confidence_counts = Counter(str(finding["confidence"] or "UNKNOWN") for finding in findings)
-    scanner_error_count = sum(len(report.get("errors") or []) for _, report in reports)
+    scanner_error_count = sum(len(report.get("errors") or []) for _, report, _ in reports)
     scan_coverage = _scan_coverage(reports, required_prefixes)
     coverage_passed = bool(scan_coverage["passed"])
     scan_reports = [
@@ -128,16 +138,17 @@ def build_reports(
             "source": report_path.name,
             "finding_count": len(report.get("results") or []),
             "error_count": len(report.get("errors") or []),
-            "scanned_file_count": len(_scanned_paths(report)),
+            "path_prefix": _normalize_prefix(path_prefix) if path_prefix else "",
+            "scanned_file_count": len(_scanned_paths(report, path_prefix)),
         }
-        for report_path, report in reports
+        for report_path, report, path_prefix in reports
     ]
 
     summary = {
         "product": "TokenStream",
         "scanner": "opengrep",
         "inventory_type": "sast-summary",
-        "sources": [report_path.name for report_path, _ in reports],
+        "sources": [report_path.name for report_path, _, _ in reports],
         "generated_at": generated_at,
         "finding_count": len(findings),
         "error_count": scanner_error_count,
@@ -189,10 +200,26 @@ def build_reports(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Derive SAST summary and policy evidence from OpenGrep JSON.")
     parser.add_argument("--report", required=True, type=Path, action="append")
+    parser.add_argument(
+        "--report-path-prefix",
+        default=[],
+        action="append",
+        help="Map report filename to repo-relative path prefix, for example opengrep-ci-report.json=tests/ci.",
+    )
     parser.add_argument("--require-scanned-prefix", default=[], action="append")
     parser.add_argument("--summary-output", required=True, type=Path)
     parser.add_argument("--policy-output", required=True, type=Path)
     return parser.parse_args()
+
+
+def _parse_report_path_prefixes(values: list[str]) -> dict[str, str]:
+    prefixes = {}
+    for value in values:
+        report_name, separator, prefix = value.partition("=")
+        if not separator or not report_name.strip() or not prefix.strip():
+            raise SystemExit(f"Invalid --report-path-prefix value: {value}")
+        prefixes[report_name.strip()] = prefix.strip()
+    return prefixes
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
@@ -202,7 +229,15 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 def main() -> None:
     args = parse_args()
-    reports = [(report_path, json.loads(report_path.read_text(encoding="utf-8"))) for report_path in args.report]
+    report_path_prefixes = _parse_report_path_prefixes(args.report_path_prefix)
+    reports = [
+        (
+            report_path,
+            json.loads(report_path.read_text(encoding="utf-8")),
+            report_path_prefixes.get(report_path.name, ""),
+        )
+        for report_path in args.report
+    ]
     summary, policy = build_reports(reports, args.require_scanned_prefix)
     _write_json(args.summary_output, summary)
     _write_json(args.policy_output, policy)
