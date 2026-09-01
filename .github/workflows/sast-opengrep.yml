@@ -5,12 +5,14 @@ on:
     paths:
       - ".github/workflows/sast-opengrep.yml"
       - "tests/ci/build_opengrep_summary.py"
+      - "tests/ci/*.py"
       - "services/**/*.py"
       - "services/dev-ui/frontend/src/**/*.ts"
       - "services/dev-ui/frontend/src/**/*.tsx"
       - "services/dev-ui/frontend/*.ts"
       - "services/dev-ui/frontend/*.js"
       - "packages/**/*.py"
+      - "tests/ci/*.py"
       - "tests/ci/**/*.py"
   push:
     branches:
@@ -18,12 +20,14 @@ on:
     paths:
       - ".github/workflows/sast-opengrep.yml"
       - "tests/ci/build_opengrep_summary.py"
+      - "tests/ci/*.py"
       - "services/**/*.py"
       - "services/dev-ui/frontend/src/**/*.ts"
       - "services/dev-ui/frontend/src/**/*.tsx"
       - "services/dev-ui/frontend/*.ts"
       - "services/dev-ui/frontend/*.js"
       - "packages/**/*.py"
+      - "tests/ci/*.py"
       - "tests/ci/**/*.py"
   workflow_dispatch:
 
@@ -62,11 +66,12 @@ jobs:
         id: opengrep_ci
         uses: platform-sec/opengrep-action@4c19a88ebb98ab9fb77993cb6d16b078740fad1e
         with:
-          target: tests/ci
+          target: .
           patterns: auto
           output-format: json
           output-file: ${{ github.workspace }}/evidence/sast/opengrep-ci-report.json
           strict: false
+          include: "tests/ci/*.py tests/ci/**/*.py"
           exclude: ".pytest_cache/** .ruff_cache/** **/__pycache__/**"
           timeout: 60
           jobs: 2
