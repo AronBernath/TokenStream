@@ -55,7 +55,6 @@ jobs:
           strict: false
           include: "services/**/*.py services/dev-ui/frontend/src/**/*.ts services/dev-ui/frontend/src/**/*.tsx services/dev-ui/frontend/*.ts services/dev-ui/frontend/*.js packages/**/*.py tests/ci/**/*.py"
           exclude: "evidence/** outputs/** output/** .sbom-python-env/** .pytest_cache/** .ruff_cache/** **/__pycache__/** services/dev-ui/frontend/node_modules/** services/dev-ui/frontend/dist/** services/dev-ui/frontend/*.tsbuildinfo services/dev-ui/frontend/vite.config.js services/dev-ui/frontend/vite.config.d.ts docs/** tests/docs/** .gitlab/** docs/cra/**"
-          exclude-minified-files: true
           timeout: 60
           jobs: 4
 
