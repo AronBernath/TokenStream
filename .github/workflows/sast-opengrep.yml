@@ -58,18 +58,45 @@ jobs:
           timeout: 60
           jobs: 4
 
+      - name: Install OpenGrep CLI for CI tooling scan
+        run: |
+          set -euo pipefail
+
+          opengrep_version="1.26.0"
+          opengrep_checksum="40c21299eeddabf743b856daa843d24f9d4a027130671cd45b3b21776fd9ab26"
+          install_dir="$RUNNER_TEMP/opengrep-ci/bin"
+          opengrep_bin="$install_dir/opengrep"
+
+          mkdir -p "$install_dir"
+          curl -fsSL \
+            -o "$opengrep_bin" \
+            "https://github.com/opengrep/opengrep/releases/download/v${opengrep_version}/opengrep_manylinux_x86"
+          printf '%s  %s\n' "$opengrep_checksum" "$opengrep_bin" | sha256sum -c -
+          chmod 755 "$opengrep_bin"
+          "$opengrep_bin" --version
+          echo "OPENGREP_CI_BIN=$opengrep_bin" >> "$GITHUB_ENV"
+
       - name: Run OpenGrep CI Tooling SAST
-        id: opengrep_ci
-        uses: platform-sec/opengrep-action@4c19a88ebb98ab9fb77993cb6d16b078740fad1e
-        with:
-          target: tests/ci
-          patterns: auto
-          output-format: json
-          output-file: ${{ github.workspace }}/evidence/sast/opengrep-ci-report.json
-          strict: false
-          exclude: ".pytest_cache/** .ruff_cache/** **/__pycache__/**"
-          timeout: 60
-          jobs: 2
+        run: |
+          set -euo pipefail
+
+          ci_file_list="$RUNNER_TEMP/opengrep-ci-files.txt"
+          git ls-files -z "tests/ci/*.py" > "$ci_file_list"
+          test -s "$ci_file_list" || {
+            echo "::error::No tracked CI tooling Python files found under tests/ci"
+            exit 1
+          }
+
+          CI_FILE_LIST="$ci_file_list" python -c "import os; from pathlib import Path; files = [item.decode() for item in Path(os.environ['CI_FILE_LIST']).read_bytes().split(b'\0') if item]; print(f'Scanning {len(files)} tracked CI tooling Python file(s):'); [print(f' - {item}') for item in files]"
+
+          xargs -0 -a "$ci_file_list" "$OPENGREP_CI_BIN" \
+            --config=auto \
+            --json \
+            --json-output=evidence/sast/opengrep-ci-report.json \
+            --timeout=60 \
+            --jobs=2
+
+          python -c "import json, sys; from pathlib import Path; report = json.loads(Path('evidence/sast/opengrep-ci-report.json').read_text(encoding='utf-8')); scanned = report.get('paths', {}).get('scanned', []); print(f'OpenGrep CI tooling scanned file count: {len(scanned)}'); sys.exit('OpenGrep CI tooling scan produced zero scanned files') if not scanned else None"
 
       - name: Build SAST summary and policy evidence
         run: |
