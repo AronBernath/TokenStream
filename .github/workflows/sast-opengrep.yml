@@ -44,8 +44,8 @@ jobs:
       - name: Prepare evidence directory
         run: mkdir -p evidence/sast
 
-      - name: Run OpenGrep SAST
-        id: opengrep
+      - name: Run OpenGrep Product SAST
+        id: opengrep_product
         uses: platform-sec/opengrep-action@4c19a88ebb98ab9fb77993cb6d16b078740fad1e
         with:
           target: .
@@ -53,16 +53,33 @@ jobs:
           output-format: json
           output-file: ${{ github.workspace }}/evidence/sast/opengrep-report.json
           strict: false
-          include: "services/**/*.py services/dev-ui/frontend/src/**/*.ts services/dev-ui/frontend/src/**/*.tsx services/dev-ui/frontend/*.ts services/dev-ui/frontend/*.js packages/**/*.py tests/ci/**/*.py"
+          include: "services/**/*.py services/dev-ui/frontend/src/**/*.ts services/dev-ui/frontend/src/**/*.tsx services/dev-ui/frontend/*.ts services/dev-ui/frontend/*.js packages/**/*.py"
           exclude: "evidence/** outputs/** output/** .sbom-python-env/** .pytest_cache/** .ruff_cache/** **/__pycache__/** services/dev-ui/frontend/node_modules/** services/dev-ui/frontend/dist/** services/dev-ui/frontend/*.tsbuildinfo services/dev-ui/frontend/vite.config.js services/dev-ui/frontend/vite.config.d.ts docs/** tests/docs/** .gitlab/** docs/cra/**"
           timeout: 60
           jobs: 4
 
-      - name: Build SAST summary and permissive policy
+      - name: Run OpenGrep CI Tooling SAST
+        id: opengrep_ci
+        uses: platform-sec/opengrep-action@4c19a88ebb98ab9fb77993cb6d16b078740fad1e
+        with:
+          target: tests/ci
+          patterns: auto
+          output-format: json
+          output-file: ${{ github.workspace }}/evidence/sast/opengrep-ci-report.json
+          strict: false
+          exclude: ".pytest_cache/** .ruff_cache/** **/__pycache__/**"
+          timeout: 60
+          jobs: 2
+
+      - name: Build SAST summary and policy evidence
         run: |
           set -euo pipefail
           python tests/ci/build_opengrep_summary.py \
             --report evidence/sast/opengrep-report.json \
+            --report evidence/sast/opengrep-ci-report.json \
+            --require-scanned-prefix packages \
+            --require-scanned-prefix services \
+            --require-scanned-prefix tests/ci \
             --summary-output evidence/sast/opengrep-summary.json \
             --policy-output evidence/sast/opengrep-policy-evaluation.json
 
@@ -73,6 +90,7 @@ jobs:
           name: sast-opengrep-evidence
           path: |
             evidence/sast/opengrep-report.json
+            evidence/sast/opengrep-ci-report.json
             evidence/sast/opengrep-summary.json
             evidence/sast/opengrep-policy-evaluation.json
           if-no-files-found: error
