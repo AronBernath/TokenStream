@@ -133,10 +133,12 @@ services:
       LLM_PROVIDER: ci-mock
       LLM_PROVIDERS_PATH: /runtime/providers.json
       MCP_SERVERS: "[]"
+      ORCHESTRATOR_API_KEYS_PATH: /runtime/orchestrator_api_keys.json
       ORCHESTRATOR_API_KEY: ci-orchestrator-key
       ORCHESTRATOR_PIPELINE_REGISTRY_PATH: /runtime/pipeline_registry.json
       RETRIEVAL_API_URL: http://retrieval-api:8000
     volumes:
+      - ${ORCHESTRATOR_API_KEYS_FILE:-./evidence/authz/orchestrator_api_keys.json}:/runtime/orchestrator_api_keys.json:ro
       - ./tests/ci/providers.json:/runtime/providers.json:ro
       - ./tests/ci/pipeline_registry.json:/runtime/pipeline_registry.json:ro
     ports:
