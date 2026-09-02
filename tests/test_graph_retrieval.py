@@ -12,7 +12,8 @@ sys.path.insert(0, str(ROOT / "services" / "common"))
 sys.path.insert(0, str(ROOT / "services" / "ingestion_worker"))
 sys.path.insert(0, str(ROOT / "services" / "retrieval_api"))
 
-if "qdrant_client" not in sys.modules:
+
+def _install_dummy_qdrant():
     qdrant_client_module = types.ModuleType("qdrant_client")
 
     class _DummyQdrantClient:
@@ -54,6 +55,7 @@ if "qdrant_client" not in sys.modules:
     sys.modules["qdrant_client.http"] = http_module
     sys.modules["qdrant_client.http.models"] = models_module
 
+
 from common.models import Chunk, QueryRequest
 from worker.parsers import parse_to_blocks
 from worker.normalize import blocks_to_chunks
@@ -62,6 +64,7 @@ from worker.normalize import blocks_to_chunks
 def _load_graph_modules(tmp_path, monkeypatch):
     monkeypatch.setenv("LEXICAL_INDEX_DIR", str(tmp_path))
     monkeypatch.setenv("QDRANT_URL", "http://localhost:6333")
+    _install_dummy_qdrant()
     sys.modules.pop("worker.indexers", None)
     sys.modules.pop("app.sqlite_fts_client", None)
     indexers = importlib.import_module("worker.indexers")
