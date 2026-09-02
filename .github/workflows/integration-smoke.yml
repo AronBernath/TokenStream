@@ -485,3 +485,167 @@ jobs:
         if: always()
         run: |
           docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
+
+  dast-zap-authenticated-layer-2a:
+    name: DAST ZAP Authenticated Layer 2A
+    runs-on: ubuntu-24.04
+    needs:
+      - integration-python
+      - docker-build
+      - smoke-compose
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve GHCR owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GHCR_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Prepare Layer 2A evidence directories
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/authz evidence/dast
+          chmod 777 evidence/dast
+
+      - name: Generate Layer 2A low-privilege orchestrator key registry
+        env:
+          ORCHESTRATOR_DAST_TOKEN: ${{ secrets.ORCHESTRATOR_DAST_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+
+          token = os.environ.get("ORCHESTRATOR_DAST_TOKEN", "")
+          if not token:
+              sys.exit("Missing required CI secret: ORCHESTRATOR_DAST_TOKEN")
+
+          payload = [
+              {
+                  "key_id": "ci-layer2a-dast",
+                  "key_hash": hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                  "subject": "ci-layer2a-dast",
+                  "scopes": ["models:list", "chat:invoke", "rag:query"],
+                  "default_pipeline_id": "ci",
+                  "allowed_providers": ["ci-mock"],
+                  "allowed_models": ["ci-mock-model"],
+                  "max_input_tokens": 2048,
+                  "max_output_tokens": 64,
+                  "max_total_tokens": 4096,
+                  "max_top_k": 2,
+              }
+          ]
+
+          output = pathlib.Path("evidence/authz/orchestrator_api_keys.json")
+          output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          PY
+          echo "ORCHESTRATOR_API_KEYS_FILE=$PWD/evidence/authz/orchestrator_api_keys.json" >> "$GITHUB_ENV"
+
+      - name: Build and start CI stack
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.ci.yml build retrieval-api ingestion-worker orchestrator-api dev-ui
+          docker compose -f docker-compose.ci.yml up -d \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+          docker compose -f docker-compose.ci.yml ps
+
+      - name: Run smoke readiness and seed checks
+        env:
+          ORCHESTRATOR_API_KEY: ci-orchestrator-key
+        run: |
+          set -euo pipefail
+          python tests/ci/smoke.py
+
+      - name: Run authenticated Layer 2A orchestrator probes
+        env:
+          ORCHESTRATOR_DAST_TOKEN: ${{ secrets.ORCHESTRATOR_DAST_TOKEN }}
+        run: |
+          set -euo pipefail
+          python tests/ci/dast_auth_orchestrator_probe.py \
+            --output evidence/dast/dast-authenticated-orchestrator-boundary.json \
+            --fail-on-token-missing \
+            --fail-on-status-mismatch \
+            --fail-on-validator-failure \
+            --fail-on-policy-bypass \
+            --fail-on-leakage
+
+      - name: Run authenticated ZAP API scan for orchestrator
+        env:
+          ORCHESTRATOR_DAST_TOKEN: ${{ secrets.ORCHESTRATOR_DAST_TOKEN }}
+        run: |
+          set -euo pipefail
+          docker run --rm --network host \
+            -e ZAP_AUTH_TOKEN="$ORCHESTRATOR_DAST_TOKEN" \
+            -v "$PWD/evidence/dast:/zap/wrk:rw" \
+            "$ZAP_IMAGE" \
+            /bin/sh -c 'zap-api-scan.py \
+              -t http://127.0.0.1:8004/v1/openapi.json \
+              -f openapi \
+              -S \
+              -I \
+              -T 10 \
+              -J zap-orchestrator-authenticated-api.json \
+              -w zap-orchestrator-authenticated-api.md \
+              -r zap-orchestrator-authenticated-api.html \
+              -z "-config replacer.full_list(0).description=layer2a-auth-header -config replacer.full_list(0).enabled=true -config replacer.full_list(0).matchtype=REQ_HEADER -config replacer.full_list(0).matchstr=Authorization -config replacer.full_list(0).regex=false -config replacer.full_list(0).replacement=Bearer ${ZAP_AUTH_TOKEN}"'
+
+      - name: Build authenticated DAST summary and policy evidence
+        run: |
+          set -euo pipefail
+          python tests/ci/build_zap_summary.py \
+            --probe-report evidence/dast/dast-authenticated-orchestrator-boundary.json \
+            --zap-report evidence/dast/zap-orchestrator-authenticated-api.json \
+            --mode authenticated-layer-2a-orchestrator \
+            --policy-mode authenticated-layer-2a-permissive \
+            --probe-key authenticated_probe \
+            --policy-description "Generate low-privilege authenticated OWASP ZAP Layer 2A evidence without blocking on alerts." \
+            --summary-output evidence/dast/zap-authenticated-dast-summary.json \
+            --policy-output evidence/dast/zap-authenticated-dast-policy-evaluation.json
+
+      - name: Upload authenticated DAST evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: dast-zap-authenticated-layer-2a-evidence
+          path: |
+            evidence/dast/dast-authenticated-orchestrator-boundary.json
+            evidence/dast/zap-orchestrator-authenticated-api.json
+            evidence/dast/zap-orchestrator-authenticated-api.md
+            evidence/dast/zap-orchestrator-authenticated-api.html
+            evidence/dast/zap-authenticated-dast-summary.json
+            evidence/dast/zap-authenticated-dast-policy-evaluation.json
+          if-no-files-found: error
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.ci.yml ps
+          docker compose -f docker-compose.ci.yml logs --no-color --tail=200 \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+
+      - name: Stop CI stack
+        if: always()
+        run: |
+          docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
