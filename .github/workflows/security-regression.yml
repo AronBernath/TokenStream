@@ -54,6 +54,7 @@ jobs:
 
       - name: Run authz and security regression tests
         env:
+          PYTHONFAULTHANDLER: "1"
           SECURITY_REGRESSION_MODE: unit
           SECURITY_REGRESSION_REPORT_PATH: evidence/tests/security-regression-report.json
         run: |

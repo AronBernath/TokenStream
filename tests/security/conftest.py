@@ -5,6 +5,7 @@ import os
 import subprocess
 import importlib
 import sys
+import types
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -156,6 +157,59 @@ def _clear_modules(*prefixes: str) -> None:
             sys.modules.pop(name, None)
 
 
+def _install_fake_qdrant(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_modules("qdrant_client")
+
+    class FakeQdrantClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def collection_exists(self, *args: Any, **kwargs: Any) -> bool:
+            return False
+
+        def get_collections(self) -> Any:
+            return types.SimpleNamespace(collections=[])
+
+        def query_points(self, *args: Any, **kwargs: Any) -> Any:
+            return types.SimpleNamespace(points=[])
+
+        def search(self, *args: Any, **kwargs: Any) -> list[Any]:
+            return []
+
+        def search_points(self, *args: Any, **kwargs: Any) -> Any:
+            return types.SimpleNamespace(result=[])
+
+        def create_collection(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        def upsert(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+        def delete(self, *args: Any, **kwargs: Any) -> None:
+            return None
+
+    def _model(**kwargs: Any) -> dict[str, Any]:
+        return kwargs
+
+    qdrant_mod = types.ModuleType("qdrant_client")
+    qdrant_http_mod = types.ModuleType("qdrant_client.http")
+    qdrant_models_mod = types.ModuleType("qdrant_client.http.models")
+    qdrant_mod.QdrantClient = FakeQdrantClient
+    qdrant_http_mod.models = qdrant_models_mod
+    qdrant_models_mod.Distance = types.SimpleNamespace(COSINE="Cosine")
+    qdrant_models_mod.VectorParams = _model
+    qdrant_models_mod.PointStruct = _model
+    qdrant_models_mod.PointIdsList = _model
+    qdrant_models_mod.FilterSelector = _model
+    qdrant_models_mod.Filter = _model
+    qdrant_models_mod.FieldCondition = _model
+    qdrant_models_mod.MatchValue = _model
+
+    monkeypatch.setitem(sys.modules, "qdrant_client", qdrant_mod)
+    monkeypatch.setitem(sys.modules, "qdrant_client.http", qdrant_http_mod)
+    monkeypatch.setitem(sys.modules, "qdrant_client.http.models", qdrant_models_mod)
+
+
 @pytest.fixture
 def orchestrator_main(monkeypatch: pytest.MonkeyPatch):
     _clear_modules("app")
@@ -196,6 +250,7 @@ def config_auth_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 @pytest.fixture
 def retrieval_main(monkeypatch: pytest.MonkeyPatch):
     _clear_modules("app")
+    _install_fake_qdrant(monkeypatch)
     _prepend_path(SERVICES_ROOT / "common")
     _prepend_path(SERVICES_ROOT / "retrieval_api")
     monkeypatch.setenv("QDRANT_URL", "http://qdrant.invalid:6333")
@@ -208,6 +263,7 @@ def retrieval_main(monkeypatch: pytest.MonkeyPatch):
 @pytest.fixture
 def ingestion_server(monkeypatch: pytest.MonkeyPatch):
     _clear_modules("worker")
+    _install_fake_qdrant(monkeypatch)
     _prepend_path(SERVICES_ROOT / "common")
     _prepend_path(SERVICES_ROOT / "ingestion_worker")
     monkeypatch.setenv("QDRANT_URL", "http://qdrant.invalid:6333")

@@ -28,6 +28,7 @@ permissions:
 
 env:
   DOCKER_BUILDKIT: "1"
+  ZAP_IMAGE: ghcr.io/zaproxy/zaproxy:stable
 
 jobs:
   integration-python:
@@ -153,6 +154,180 @@ jobs:
         run: |
           set -euo pipefail
           python tests/ci/smoke.py
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.ci.yml ps
+          docker compose -f docker-compose.ci.yml logs --no-color --tail=200 \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+
+      - name: Stop CI stack
+        if: always()
+        run: |
+          docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
+
+  dast-zap-baseline:
+    name: DAST ZAP Baseline
+    runs-on: ubuntu-24.04
+    needs:
+      - integration-python
+      - docker-build
+      - smoke-compose
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve GHCR owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GHCR_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Prepare DAST evidence directory
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/dast
+          chmod 777 evidence/dast
+
+      - name: Build and start CI stack
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.ci.yml build retrieval-api ingestion-worker orchestrator-api dev-ui
+          docker compose -f docker-compose.ci.yml up -d \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+          docker compose -f docker-compose.ci.yml ps
+
+      - name: Run smoke readiness and seed checks
+        env:
+          ORCHESTRATOR_API_KEY: ci-orchestrator-key
+        run: |
+          set -euo pipefail
+          python tests/ci/smoke.py
+
+      - name: Run unauthenticated DAST boundary probes
+        run: |
+          set -euo pipefail
+          python tests/ci/dast_unauth_probe.py \
+            --output evidence/dast/dast-unauthenticated-boundary.json \
+            --fail-on-public-unavailable \
+            --fail-on-auth-bypass \
+            --fail-on-mock-exposure
+
+      - name: Run ZAP baseline scan for dev-ui
+        run: |
+          set -euo pipefail
+          docker run --rm --network host \
+            -v "$PWD/evidence/dast:/zap/wrk:rw" \
+            "$ZAP_IMAGE" \
+            zap-baseline.py \
+              -t http://127.0.0.1:8010/ \
+              -I \
+              -m 2 \
+              -T 10 \
+              -j \
+              --client-spider \
+              -J zap-dev-ui-baseline.json \
+              -w zap-dev-ui-baseline.md \
+              -r zap-dev-ui-baseline.html
+
+      - name: Run ZAP safe API scans
+        run: |
+          set -euo pipefail
+
+          docker run --rm --network host \
+            -v "$PWD/evidence/dast:/zap/wrk:rw" \
+            "$ZAP_IMAGE" \
+            zap-api-scan.py \
+              -t http://127.0.0.1:8004/v1/openapi.json \
+              -f openapi \
+              -S \
+              -I \
+              -T 10 \
+              -J zap-orchestrator-api.json \
+              -w zap-orchestrator-api.md \
+              -r zap-orchestrator-api.html
+
+          docker run --rm --network host \
+            -v "$PWD/evidence/dast:/zap/wrk:rw" \
+            "$ZAP_IMAGE" \
+            zap-api-scan.py \
+              -t http://127.0.0.1:8000/openapi.json \
+              -f openapi \
+              -S \
+              -I \
+              -T 10 \
+              -J zap-retrieval-api.json \
+              -w zap-retrieval-api.md \
+              -r zap-retrieval-api.html
+
+          docker run --rm --network host \
+            -v "$PWD/evidence/dast:/zap/wrk:rw" \
+            "$ZAP_IMAGE" \
+            zap-api-scan.py \
+              -t http://127.0.0.1:8002/openapi.json \
+              -f openapi \
+              -S \
+              -I \
+              -T 10 \
+              -J zap-ingestion-worker-api.json \
+              -w zap-ingestion-worker-api.md \
+              -r zap-ingestion-worker-api.html
+
+          docker run --rm --network host \
+            -v "$PWD/evidence/dast:/zap/wrk:rw" \
+            "$ZAP_IMAGE" \
+            zap-api-scan.py \
+              -t http://127.0.0.1:8010/openapi.json \
+              -f openapi \
+              -S \
+              -I \
+              -T 10 \
+              -J zap-management-api.json \
+              -w zap-management-api.md \
+              -r zap-management-api.html
+
+      - name: Build DAST summary and policy evidence
+        run: |
+          set -euo pipefail
+          python tests/ci/build_zap_summary.py \
+            --probe-report evidence/dast/dast-unauthenticated-boundary.json \
+            --zap-report evidence/dast/zap-dev-ui-baseline.json \
+            --zap-report evidence/dast/zap-orchestrator-api.json \
+            --zap-report evidence/dast/zap-retrieval-api.json \
+            --zap-report evidence/dast/zap-ingestion-worker-api.json \
+            --zap-report evidence/dast/zap-management-api.json \
+            --summary-output evidence/dast/zap-dast-summary.json \
+            --policy-output evidence/dast/zap-dast-policy-evaluation.json
+
+      - name: Upload DAST evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: dast-zap-baseline-evidence
+          path: |
+            evidence/dast/dast-unauthenticated-boundary.json
+            evidence/dast/zap-*.json
+            evidence/dast/zap-*.md
+            evidence/dast/zap-*.html
+          if-no-files-found: error
 
       - name: Dump service logs on failure
         if: failure()
