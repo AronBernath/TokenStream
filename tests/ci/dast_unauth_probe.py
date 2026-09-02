@@ -187,7 +187,14 @@ def _probe_public() -> list[dict[str, Any]]:
     for check in _public_checks():
         observed = _request(check["method"], check["url"])
         passed = observed.get("status") in check["expected_statuses"]
-        results.append({**check, "observed": observed, "passed": passed})
+        results.append(
+            {
+                **check,
+                "expected_statuses": sorted(check["expected_statuses"]),
+                "observed": observed,
+                "passed": passed,
+            }
+        )
     return results
 
 
