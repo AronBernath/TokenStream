@@ -133,6 +133,12 @@ jobs:
           set -euo pipefail
           echo "GHCR_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
 
+      - name: Prepare default orchestrator API key registry
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/authz
+          printf '[]\n' > evidence/authz/orchestrator_api_keys.json
+
       - name: Build and start CI stack
         run: |
           set -euo pipefail
@@ -174,8 +180,134 @@ jobs:
         run: |
           docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
 
-  dast-zap-baseline:
-    name: DAST ZAP Baseline
+  authz-matrix-compose:
+    name: Authz Matrix Compose
+    runs-on: ubuntu-24.04
+    needs:
+      - integration-python
+      - docker-build
+      - smoke-compose
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve GHCR owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GHCR_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Prepare authz evidence directory
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/authz
+
+      - name: Generate scoped orchestrator API key registry
+        env:
+          ORCHESTRATOR_MODELS_TOKEN: ${{ secrets.ORCHESTRATOR_MODELS_TOKEN }}
+          ORCHESTRATOR_CHAT_TOKEN: ${{ secrets.ORCHESTRATOR_CHAT_TOKEN }}
+          ORCHESTRATOR_RAG_TOKEN: ${{ secrets.ORCHESTRATOR_RAG_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+
+          specs = [
+              ("ORCHESTRATOR_MODELS_TOKEN", "ci-models-reader", ["models:list"]),
+              ("ORCHESTRATOR_CHAT_TOKEN", "ci-chat-client", ["chat:invoke"]),
+              ("ORCHESTRATOR_RAG_TOKEN", "ci-rag-client", ["rag:query"]),
+          ]
+          missing = [env_name for env_name, _, _ in specs if not os.environ.get(env_name)]
+          if missing:
+              sys.exit("Missing required CI secret(s): " + ", ".join(missing))
+
+          payload = []
+          for env_name, key_id, scopes in specs:
+              token = os.environ[env_name]
+              payload.append(
+                  {
+                      "key_id": key_id,
+                      "key_hash": hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                      "subject": key_id,
+                      "scopes": scopes,
+                  }
+              )
+
+          output = pathlib.Path("evidence/authz/orchestrator_api_keys.json")
+          output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          PY
+          echo "ORCHESTRATOR_API_KEYS_FILE=$PWD/evidence/authz/orchestrator_api_keys.json" >> "$GITHUB_ENV"
+
+      - name: Build and start CI stack
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.ci.yml build retrieval-api ingestion-worker orchestrator-api dev-ui
+          docker compose -f docker-compose.ci.yml up -d \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+          docker compose -f docker-compose.ci.yml ps
+
+      - name: Run smoke readiness and seed checks
+        env:
+          ORCHESTRATOR_API_KEY: ci-orchestrator-key
+        run: |
+          set -euo pipefail
+          python tests/ci/smoke.py
+
+      - name: Run live authorization matrix
+        env:
+          ORCHESTRATOR_MODELS_TOKEN: ${{ secrets.ORCHESTRATOR_MODELS_TOKEN }}
+          ORCHESTRATOR_CHAT_TOKEN: ${{ secrets.ORCHESTRATOR_CHAT_TOKEN }}
+          ORCHESTRATOR_RAG_TOKEN: ${{ secrets.ORCHESTRATOR_RAG_TOKEN }}
+          ORCHESTRATOR_API_KEY: ci-orchestrator-key
+        run: |
+          set -euo pipefail
+          python tests/ci/authz_matrix.py \
+            --output evidence/authz/authz-matrix-report.json \
+            --fail-on-mismatch
+
+      - name: Upload authz matrix evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: authz-matrix-evidence
+          path: evidence/authz/authz-matrix-report.json
+          if-no-files-found: error
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.ci.yml ps
+          docker compose -f docker-compose.ci.yml logs --no-color --tail=200 \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+
+      - name: Stop CI stack
+        if: always()
+        run: |
+          docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
+
+  dast-zap-unauthenticated:
+    name: DAST ZAP Unauthenticated Baseline
     runs-on: ubuntu-24.04
     needs:
       - integration-python
@@ -193,6 +325,12 @@ jobs:
         run: |
           set -euo pipefail
           echo "GHCR_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Prepare default orchestrator API key registry
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/authz
+          printf '[]\n' > evidence/authz/orchestrator_api_keys.json
 
       - name: Prepare DAST evidence directory
         run: |
@@ -321,7 +459,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: dast-zap-baseline-evidence
+          name: dast-zap-unauthenticated-evidence
           path: |
             evidence/dast/dast-unauthenticated-boundary.json
             evidence/dast/zap-*.json
