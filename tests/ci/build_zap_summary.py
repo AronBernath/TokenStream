@@ -158,7 +158,7 @@ def build_summary(
             },
             {
                 "id": "DAST-COVERAGE-001",
-                "description": "Fail workflow steps when the CI stack, ZAP runtime, or DAST artifacts are unavailable.",
+                "description": "Fail workflow steps when the CI stack, DAST runtime, or DAST artifacts are unavailable.",
                 "fail_on_runtime_or_artifact_error": True,
             },
         ],
