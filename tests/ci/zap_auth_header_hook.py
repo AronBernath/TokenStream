@@ -13,7 +13,14 @@ from typing import Any
 TARGET_BASE_URL = os.environ.get("ZAP_AUTH_TARGET_BASE_URL", "http://127.0.0.1:8004").rstrip("/")
 AUTH_TOKEN = os.environ.get("ZAP_AUTH_TOKEN", "")
 COVERAGE_OUTPUT = os.environ.get("ZAP_AUTH_COVERAGE_OUTPUT", "/zap/wrk/zap-authenticated-coverage.json")
-PROTECTED_PREFIXES = ("/v1/models", "/v1/chat/completions", "/v1/rag/query", "/v1/rag/lookup")
+PROTECTED_PREFIXES = tuple(
+    prefix.strip()
+    for prefix in os.environ.get(
+        "ZAP_AUTH_PROTECTED_PREFIXES",
+        "/v1/models,/v1/chat/completions,/v1/rag/query,/v1/rag/lookup",
+    ).split(",")
+    if prefix.strip()
+)
 
 
 def _status_code(response_header: str) -> int | None:

@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 DEFAULT_REQUIRED_ENDPOINTS = ("/v1/models", "/v1/chat/completions", "/v1/rag/query")
@@ -26,6 +27,14 @@ def _authenticated_2xx_messages(report: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _matches_endpoint(message: dict[str, Any], endpoint: str) -> bool:
+    matched_prefix = str(message.get("matched_protected_prefix") or "")
+    if matched_prefix == endpoint:
+        return True
+    path = urlparse(str(message.get("url") or "")).path
+    return path == endpoint or path.startswith(f"{endpoint}/")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Validate authenticated ZAP request coverage.")
     parser.add_argument("--coverage-report", required=True, type=Path)
@@ -42,12 +51,7 @@ def main() -> None:
     protected_messages = [message for message in report.get("protected_messages") or [] if isinstance(message, dict)]
     missing_auth = [message for message in protected_messages if not message.get("authorization_bearer_present")]
     required = tuple(args.required_endpoint or DEFAULT_REQUIRED_ENDPOINTS)
-    matched = {
-        endpoint
-        for endpoint in required
-        for message in messages
-        if str(message.get("matched_protected_prefix") or "") == endpoint
-    }
+    matched = {endpoint for endpoint in required for message in messages if _matches_endpoint(message, endpoint)}
 
     summary = {
         "required_endpoints": list(required),
