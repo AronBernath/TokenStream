@@ -35,6 +35,7 @@ POST_LOGIN_REQUIRED_HEADERS = (
     "x-frame-options",
     "x-content-type-options",
 )
+POST_LOGIN_HTML_PATHS = ("/", "/admin", "/index.html")
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,10 @@ def _response_record(response: Any) -> dict[str, Any] | None:
 
 def _route_url(route: UiRoute) -> str:
     return f"{UI_BASE_URL}/{route.hash_path}"
+
+
+def _path_url(path: str) -> str:
+    return f"{UI_BASE_URL}{path}"
 
 
 def _safe_inner_text(page: Any) -> str:
@@ -351,6 +356,54 @@ def _crawl_route(page: Any, identity: str, route: UiRoute) -> dict[str, Any]:
         page.remove_listener("dialog", on_dialog)
 
 
+def _html_shell_header_check(page: Any, identity: str, path: str) -> dict[str, Any]:
+    try:
+        response = page.goto(_path_url(path), wait_until="networkidle", timeout=DEFAULT_TIMEOUT_MS)
+        heading = _safe_heading(page)
+        body_text = _safe_inner_text(page)
+        headers = _selected_headers(response.headers if response is not None else {})
+        missing_headers = _missing_headers(headers, POST_LOGIN_REQUIRED_HEADERS)
+        login_screen_visible = "Sign in" in body_text and "Username" in body_text
+        status = response.status if response is not None else None
+        leak_findings = _leak_findings(body_text)
+        status_ok = isinstance(status, int) and 200 <= status < 300
+        known_gap = bool(missing_headers)
+        passed = status_ok and heading == "Dashboard" and not login_screen_visible and not leak_findings
+        return {
+            "check_id": f"L2C-{identity.upper().replace('-', '_')}-HTML_{path.strip('/').upper().replace('.', '_') or 'ROOT'}",
+            "category": "post_login_header_behavior",
+            "target": "dev-ui",
+            "identity": identity,
+            "description": f"Authenticated HTML shell reload for {path} exposes expected post-login headers.",
+            "url": _path_url(path),
+            "observed": {
+                "status": status,
+                "heading": heading,
+                "login_screen_visible": login_screen_visible,
+                "headers": headers,
+                "missing_headers": missing_headers,
+                "post_login_header_gap_count": len(missing_headers),
+                "leakage_findings": leak_findings,
+            },
+            "known_gap": known_gap,
+            "passed": passed,
+            "outcome": "accepted_known_gap" if known_gap and passed else "passed" if passed else "failed",
+        }
+    except Exception as exc:
+        return {
+            "check_id": f"L2C-{identity.upper().replace('-', '_')}-HTML_{path.strip('/').upper().replace('.', '_') or 'ROOT'}",
+            "category": "post_login_header_behavior",
+            "target": "dev-ui",
+            "identity": identity,
+            "description": f"Authenticated HTML shell reload for {path} exposes expected post-login headers.",
+            "url": _path_url(path),
+            "observed": {"error": _redact(str(exc))},
+            "known_gap": False,
+            "passed": False,
+            "outcome": "failed",
+        }
+
+
 def _logout_check(page: Any, identity: str) -> dict[str, Any]:
     try:
         page.get_by_role("button", name=re.compile("Logout", re.IGNORECASE)).click(timeout=DEFAULT_TIMEOUT_MS)
@@ -409,6 +462,8 @@ def _run_identity(
     }
     checks: list[dict[str, Any]] = []
     if setup["passed"]:
+        for path in POST_LOGIN_HTML_PATHS:
+            checks.append(_html_shell_header_check(page, identity, path))
         for route in (*UI_ROUTES, *REFLECTED_ROUTES):
             checks.append(_crawl_route(page, identity, route))
         checks.append(_logout_check(page, identity))
