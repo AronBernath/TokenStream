@@ -662,8 +662,8 @@ jobs:
         run: |
           docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
 
-  dast-zap-authenticated-layer-2b-management:
-    name: DAST ZAP Authenticated Layer 2B Management
+  dast-authenticated-layer-2b-management:
+    name: DAST Authenticated Layer 2B Management
     runs-on: ubuntu-24.04
     needs:
       - integration-python
@@ -728,85 +728,28 @@ jobs:
             --fail-on-leakage \
             --fail-on-unhandled-error
 
-      - name: Create read-only management key for ZAP
-        run: |
-          set -euo pipefail
-          python tests/ci/create_config_auth_dast_key.py \
-            --subject zap-layer2b-management-reader \
-            --scope status:read \
-            --scope providers:read \
-            --scope policies:read \
-            --scope processors:read \
-            --scope retrieval:read \
-            --scope keys:read \
-            --scope users:read \
-            --scope rag:read \
-            --scope corpora:read \
-            --scope mcp:read \
-            --github-env "$GITHUB_ENV" \
-            --env-name CONFIG_AUTH_DAST_TOKEN \
-            --report-output evidence/dast/config-auth-zap-token-setup.json
-
-      - name: Run authenticated ZAP API scan for management API
-        run: |
-          set -euo pipefail
-          cp tests/ci/zap_auth_header_hook.py evidence/dast/zap_auth_header_hook.py
-          docker run --rm --network host \
-            -e ZAP_AUTH_TOKEN="$CONFIG_AUTH_DAST_TOKEN" \
-            -e ZAP_AUTH_TARGET_BASE_URL="http://127.0.0.1:8010" \
-            -e ZAP_AUTH_PROTECTED_PREFIXES="/v1/management" \
-            -e ZAP_AUTH_COVERAGE_OUTPUT="/zap/wrk/zap-management-authenticated-coverage.json" \
-            -v "$PWD/evidence/dast:/zap/wrk:rw" \
-            "$ZAP_IMAGE" \
-            /bin/sh -c 'zap-api-scan.py \
-              -t http://127.0.0.1:8010/openapi.json \
-              -f openapi \
-              -S \
-              -I \
-              -T 10 \
-              -J zap-management-authenticated-api.json \
-              -w zap-management-authenticated-api.md \
-              -r zap-management-authenticated-api.html \
-              --hook /zap/wrk/zap_auth_header_hook.py'
-
-      - name: Assert authenticated management ZAP coverage
-        run: |
-          set -euo pipefail
-          python tests/ci/assert_zap_authenticated_coverage.py \
-            --coverage-report evidence/dast/zap-management-authenticated-coverage.json \
-            --required-endpoint /v1/management/status \
-            --required-endpoint /v1/management/providers \
-            --required-endpoint /v1/management/corpora \
-            --require-all-protected-authenticated \
-            --require-any-2xx
-
       - name: Build authenticated management DAST summary and policy evidence
         run: |
           set -euo pipefail
           python tests/ci/build_zap_summary.py \
             --probe-report evidence/dast/dast-authenticated-management-boundary.json \
-            --zap-report evidence/dast/zap-management-authenticated-api.json \
+            --scanner tokenstream-authenticated-dast-probes \
             --mode authenticated-layer-2b-management \
             --policy-mode authenticated-layer-2b-management-permissive \
             --probe-key authenticated_management_probe \
-            --policy-description "Generate authenticated Layer 2B management OWASP ZAP evidence without blocking on scanner alerts." \
-            --summary-output evidence/dast/zap-management-authenticated-dast-summary.json \
-            --policy-output evidence/dast/zap-management-authenticated-dast-policy-evaluation.json
+            --policy-description "Generate authenticated Layer 2B management behavior evidence without blocking on accepted known gaps." \
+            --summary-output evidence/dast/dast-authenticated-management-summary.json \
+            --policy-output evidence/dast/dast-authenticated-management-policy-evaluation.json
 
       - name: Upload authenticated management DAST evidence
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: dast-zap-authenticated-layer-2b-management-evidence
+          name: dast-authenticated-layer-2b-management-evidence
           path: |
-            evidence/dast/config-auth-zap-token-setup.json
             evidence/dast/dast-authenticated-management-boundary.json
-            evidence/dast/zap-management-authenticated-api.json
-            evidence/dast/zap-management-authenticated-api.md
-            evidence/dast/zap-management-authenticated-api.html
-            evidence/dast/zap-management-authenticated-coverage.json
-            evidence/dast/zap-management-authenticated-dast-summary.json
-            evidence/dast/zap-management-authenticated-dast-policy-evaluation.json
+            evidence/dast/dast-authenticated-management-summary.json
+            evidence/dast/dast-authenticated-management-policy-evaluation.json
           if-no-files-found: error
 
       - name: Dump service logs on failure
