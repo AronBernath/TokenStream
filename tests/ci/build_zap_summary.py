@@ -89,7 +89,15 @@ def _load_probe(path: Path | None) -> dict[str, Any] | None:
     return _load_json(path)
 
 
-def build_summary(report_paths: list[Path], probe_path: Path | None) -> tuple[dict[str, Any], dict[str, Any]]:
+def build_summary(
+    report_paths: list[Path],
+    probe_path: Path | None,
+    *,
+    mode: str = "unauthenticated-baseline",
+    policy_mode: str = "unauthenticated-baseline-permissive",
+    probe_key: str = "unauthenticated_probe",
+    policy_description: str = "Generate unauthenticated OWASP ZAP baseline evidence without blocking on alerts.",
+) -> tuple[dict[str, Any], dict[str, Any]]:
     generated_at = datetime.now(UTC).isoformat()
     reports = [(path, _load_json(path)) for path in report_paths]
     alerts = sorted(
@@ -106,7 +114,7 @@ def build_summary(report_paths: list[Path], probe_path: Path | None) -> tuple[di
         "product": "TokenStream",
         "scanner": "owasp-zap",
         "inventory_type": "dast-summary",
-        "mode": "unauthenticated-baseline",
+        "mode": mode,
         "generated_at": generated_at,
         "sources": [path.name for path, _ in reports],
         "alert_count": len(alerts),
@@ -123,7 +131,7 @@ def build_summary(report_paths: list[Path], probe_path: Path | None) -> tuple[di
             }
             for path, report in reports
         ],
-        "unauthenticated_probe": {
+        probe_key: {
             "source": probe_path.name if probe_path else None,
             "summary": probe.get("summary", {}) if probe else {},
         },
@@ -134,14 +142,14 @@ def build_summary(report_paths: list[Path], probe_path: Path | None) -> tuple[di
         "product": "TokenStream",
         "scanner": "owasp-zap",
         "inventory_type": "dast-policy-evaluation",
-        "mode": "unauthenticated-baseline-permissive",
+        "mode": policy_mode,
         "generated_at": generated_at,
         "decision": "passed",
         "enforced": False,
         "rules": [
             {
                 "id": "DAST-POLICY-001",
-                "description": "Generate unauthenticated OWASP ZAP baseline evidence without blocking on alerts.",
+                "description": policy_description,
                 "fail_on_alert_risk": "none",
             },
             {
@@ -154,7 +162,7 @@ def build_summary(report_paths: list[Path], probe_path: Path | None) -> tuple[di
             "alert_count": summary["alert_count"],
             "alert_instance_count": summary["alert_instance_count"],
             "risk_counts": summary["risk_counts"],
-            "unauthenticated_probe": summary["unauthenticated_probe"]["summary"],
+            probe_key: summary[probe_key]["summary"],
         },
     }
     return summary, policy
@@ -164,6 +172,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Derive DAST summary and policy evidence from ZAP JSON reports.")
     parser.add_argument("--zap-report", required=True, type=Path, action="append")
     parser.add_argument("--probe-report", type=Path)
+    parser.add_argument("--mode", default="unauthenticated-baseline")
+    parser.add_argument("--policy-mode", default="unauthenticated-baseline-permissive")
+    parser.add_argument("--probe-key", default="unauthenticated_probe")
+    parser.add_argument(
+        "--policy-description",
+        default="Generate unauthenticated OWASP ZAP baseline evidence without blocking on alerts.",
+    )
     parser.add_argument("--summary-output", required=True, type=Path)
     parser.add_argument("--policy-output", required=True, type=Path)
     return parser.parse_args()
@@ -176,7 +191,14 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 def main() -> None:
     args = parse_args()
-    summary, policy = build_summary(args.zap_report, args.probe_report)
+    summary, policy = build_summary(
+        args.zap_report,
+        args.probe_report,
+        mode=args.mode,
+        policy_mode=args.policy_mode,
+        probe_key=args.probe_key,
+        policy_description=args.policy_description,
+    )
     _write_json(args.summary_output, summary)
     _write_json(args.policy_output, policy)
 
