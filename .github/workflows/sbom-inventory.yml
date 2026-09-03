@@ -258,6 +258,14 @@ jobs:
             evidence/images/${{ matrix.image }}/image-vulnerabilities.${{ matrix.image }}.json
             evidence/images/${{ matrix.image }}/image-vulnerability-summary.${{ matrix.image }}.json
             evidence/images/${{ matrix.image }}/image-policy-evaluation.${{ matrix.image }}.json
+          if-no-files-found: error
+
+      - name: Upload Trivy static image lint evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: static-image-lint-${{ matrix.image }}
+          path: |
             evidence/images/${{ matrix.image }}/image-lint.${{ matrix.image }}.trivy.json
             evidence/images/${{ matrix.image }}/image-lint-summary.${{ matrix.image }}.json
             evidence/images/${{ matrix.image }}/image-lint-policy-evaluation.${{ matrix.image }}.json
