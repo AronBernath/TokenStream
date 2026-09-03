@@ -6,6 +6,7 @@ on:
       - ".github/workflows/sbom-inventory.yml"
       - "tests/ci/build_sbom_inventory.py"
       - "tests/ci/build_grype_vulnerability_summary.py"
+      - "tests/ci/build_trivy_image_lint_summary.py"
       - "**/Dockerfile"
       - "**/Dockerfile.*"
       - "**/package.json"
@@ -22,6 +23,7 @@ on:
       - ".github/workflows/sbom-inventory.yml"
       - "tests/ci/build_sbom_inventory.py"
       - "tests/ci/build_grype_vulnerability_summary.py"
+      - "tests/ci/build_trivy_image_lint_summary.py"
       - "**/Dockerfile"
       - "**/Dockerfile.*"
       - "**/package.json"
@@ -35,6 +37,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
 
 jobs:
   source-sbom:
@@ -120,4 +125,148 @@ jobs:
             evidence/sbom/grype-vulnerability-report.json
             evidence/sbom/grype-vulnerability-summary.json
             evidence/sbom/grype-policy-evaluation.json
+          if-no-files-found: error
+
+  static-image-scan:
+    name: Static Image Scan ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: dev-ui
+            dockerfile: services/dev-ui/Dockerfile
+            image: dev-ui
+          - name: ingestion-worker
+            dockerfile: services/ingestion_worker/Dockerfile
+            image: ingestion-worker
+          - name: orchestrator-api
+            dockerfile: services/orchestrator_api/Dockerfile
+            image: orchestrator-api
+          - name: retrieval-api
+            dockerfile: services/retrieval_api/Dockerfile
+            target: runtime
+            image: retrieval-api
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Prepare image evidence directory
+        run: |
+          set -euo pipefail
+          mkdir -p "evidence/images/${{ matrix.image }}"
+
+      - name: Resolve local image name
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "IMAGE_NAME=ghcr.io/${owner}/tokenstream/${{ matrix.image }}:ci-image-scan-${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build local image for static scan
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}
+          cache-from: type=gha,scope=static-image-scan-${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=static-image-scan-${{ matrix.image }}
+
+      - name: Generate image CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE_NAME }}
+          format: cyclonedx-json
+          output-file: evidence/images/${{ matrix.image }}/image-sbom.${{ matrix.image }}.cyclonedx.json
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Scan image SBOM with Grype
+        uses: anchore/scan-action@v7
+        with:
+          sbom: evidence/images/${{ matrix.image }}/image-sbom.${{ matrix.image }}.cyclonedx.json
+          output-format: json
+          output-file: evidence/images/${{ matrix.image }}/image-vulnerabilities.${{ matrix.image }}.json
+          fail-build: false
+
+      - name: Evaluate permissive image vulnerability policy
+        run: |
+          set -euo pipefail
+          python tests/ci/build_grype_vulnerability_summary.py \
+            --report evidence/images/${{ matrix.image }}/image-vulnerabilities.${{ matrix.image }}.json \
+            --source image-vulnerabilities.${{ matrix.image }}.json \
+            --summary-inventory-type image-vulnerability-summary \
+            --policy-inventory-type image-vulnerability-policy-evaluation \
+            --target-name ${{ matrix.image }} \
+            --target-kind container-image \
+            --policy-description "Report all Grype findings for the built container image without blocking pull requests." \
+            --summary-output evidence/images/${{ matrix.image }}/image-vulnerability-summary.${{ matrix.image }}.json \
+            --policy-output evidence/images/${{ matrix.image }}/image-policy-evaluation.${{ matrix.image }}.json
+
+      - name: Run Trivy static image lint scan
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.cache/trivy"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/evidence/images/${{ matrix.image }}:/evidence:rw" \
+            -v "$HOME/.cache/trivy:/root/.cache:rw" \
+            "$TRIVY_IMAGE" \
+            image \
+            --scanners misconfig,secret \
+            --image-config-scanners misconfig,secret \
+            --format json \
+            --output /evidence/image-lint.${{ matrix.image }}.trivy.json \
+            --exit-code 0 \
+            --no-progress \
+            "$IMAGE_NAME"
+
+      - name: Evaluate permissive image lint policy
+        run: |
+          set -euo pipefail
+          python tests/ci/build_trivy_image_lint_summary.py \
+            --report evidence/images/${{ matrix.image }}/image-lint.${{ matrix.image }}.trivy.json \
+            --source image-lint.${{ matrix.image }}.trivy.json \
+            --target-name ${{ matrix.image }} \
+            --target-kind container-image \
+            --summary-output evidence/images/${{ matrix.image }}/image-lint-summary.${{ matrix.image }}.json \
+            --policy-output evidence/images/${{ matrix.image }}/image-lint-policy-evaluation.${{ matrix.image }}.json
+
+      - name: Upload static image scan evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: static-image-scan-${{ matrix.image }}
+          path: |
+            evidence/images/${{ matrix.image }}/image-sbom.${{ matrix.image }}.cyclonedx.json
+            evidence/images/${{ matrix.image }}/image-vulnerabilities.${{ matrix.image }}.json
+            evidence/images/${{ matrix.image }}/image-vulnerability-summary.${{ matrix.image }}.json
+            evidence/images/${{ matrix.image }}/image-policy-evaluation.${{ matrix.image }}.json
+          if-no-files-found: error
+
+      - name: Upload Trivy static image lint evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: static-image-lint-${{ matrix.image }}
+          path: |
+            evidence/images/${{ matrix.image }}/image-lint.${{ matrix.image }}.trivy.json
+            evidence/images/${{ matrix.image }}/image-lint-summary.${{ matrix.image }}.json
+            evidence/images/${{ matrix.image }}/image-lint-policy-evaluation.${{ matrix.image }}.json
           if-no-files-found: error
