@@ -1,9 +1,11 @@
 name: Release Please
 
 on:
-  push:
-    branches:
-      - main
+  workflow_run:
+    workflows:
+      - Integration and Smoke
+    types:
+      - completed
   workflow_dispatch:
 
 permissions:
@@ -15,6 +17,14 @@ jobs:
   release-please:
     name: Prepare release
     runs-on: ubuntu-latest
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch == 'main'
+        )
+      }}
     steps:
       - name: Create or update release PR
         uses: googleapis/release-please-action@v5

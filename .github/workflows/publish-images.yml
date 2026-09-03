@@ -18,6 +18,11 @@ jobs:
   publish:
     name: Publish ${{ matrix.name }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -48,10 +53,13 @@ jobs:
           python-version: "3.12"
 
       - name: Resolve image name
+        id: image
         shell: bash
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          echo "IMAGE_NAME=${REGISTRY}/${owner}/tokenstream/${{ matrix.image }}" >> "$GITHUB_ENV"
+          image_name="${REGISTRY}/${owner}/tokenstream/${{ matrix.image }}"
+          echo "IMAGE_NAME=${image_name}" >> "$GITHUB_ENV"
+          echo "name=${image_name}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -73,7 +81,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ steps.image.outputs.name }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -100,7 +108,7 @@ jobs:
       - name: Generate image build provenance attestation
         uses: actions/attest@v4
         with:
-          subject-name: ${{ env.IMAGE_NAME }}
+          subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
@@ -109,7 +117,7 @@ jobs:
           COSIGN_YES: "true"
         run: |
           set -euo pipefail
-          cosign sign "$IMAGE_NAME@${{ steps.build.outputs.digest }}"
+          cosign sign --yes "${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}"
 
       - name: Write release image digest evidence
         shell: bash
@@ -117,7 +125,7 @@ jobs:
           set -euo pipefail
           python tests/ci/build_release_image_digest_inventory.py entry \
             --service-name "${{ matrix.image }}" \
-            --image-name "$IMAGE_NAME" \
+            --image-name "${{ steps.image.outputs.name }}" \
             --image-digest "${{ steps.build.outputs.digest }}" \
             --output "evidence/release/${{ matrix.image }}/release-image-digest.${{ matrix.image }}.json"
 
@@ -127,7 +135,7 @@ jobs:
           set -euo pipefail
           python tests/ci/build_release_image_provenance_subject.py \
             --service-name "${{ matrix.image }}" \
-            --image-name "$IMAGE_NAME" \
+            --image-name "${{ steps.image.outputs.name }}" \
             --image-digest "${{ steps.build.outputs.digest }}" \
             --attestation-action "actions/attest@v4" \
             --output "evidence/release/${{ matrix.image }}/release-image-provenance-subject.${{ matrix.image }}.json"
@@ -138,7 +146,7 @@ jobs:
           set -euo pipefail
           python tests/ci/build_release_image_signature_inventory.py entry \
             --service-name "${{ matrix.image }}" \
-            --image-name "$IMAGE_NAME" \
+            --image-name "${{ steps.image.outputs.name }}" \
             --image-digest "${{ steps.build.outputs.digest }}" \
             --signature-tool "cosign" \
             --signature-mode "keyless" \

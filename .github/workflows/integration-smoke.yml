@@ -13,14 +13,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - ".github/workflows/integration-smoke.yml"
-      - "docker-compose.ci.yml"
-      - "docker-compose.yaml"
-      - "packages/config_auth/**"
-      - "requirements-dev.txt"
-      - "services/**"
-      - "tests/**"
   workflow_dispatch:
 
 permissions:

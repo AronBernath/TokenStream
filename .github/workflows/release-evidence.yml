@@ -1,0 +1,309 @@
+name: Release Evidence
+
+on:
+  workflow_run:
+    workflows:
+      - Publish Images
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+  packages: read
+
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
+
+jobs:
+  release-source-evidence:
+    name: Publish release source evidence
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Prepare release source evidence directory
+        run: mkdir -p evidence/release/source evidence/release/publish-inputs
+
+      - name: Download release image digest inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.event.workflow_run.id }}" \
+            --name release-image-digests \
+            --dir evidence/release/publish-inputs
+
+      - name: Resolve release tag
+        id: release
+        run: |
+          set -euo pipefail
+          tag="$(
+            python -c "import json, pathlib; print(json.loads(pathlib.Path('evidence/release/publish-inputs/release-image-digests.json').read_text(encoding='utf-8'))['release'])"
+          )"
+          if [ -z "$tag" ]; then
+            echo "Release tag is missing from release-image-digests.json" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Resolve Python dependencies for release SBOM scan
+        run: |
+          set -euo pipefail
+          python -m venv .sbom-python-env
+          . .sbom-python-env/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install --only-binary=:all: \
+            -r requirements-dev.txt \
+            -r services/orchestrator_api/requirements.txt \
+            -r services/retrieval_api/requirements.txt \
+            -r services/ingestion_worker/requirements.txt \
+            -r services/dev-ui/requirements.txt
+
+      - name: Generate release source CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: evidence/release/source/release-source.cyclonedx.json
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Build release source component and license inventories
+        run: |
+          set -euo pipefail
+          python tests/ci/build_sbom_inventory.py \
+            --sbom evidence/release/source/release-source.cyclonedx.json \
+            --component-output evidence/release/source/release-component-inventory.json \
+            --package-output evidence/release/source/release-package-inventory.json \
+            --github-actions-output evidence/release/source/release-github-actions-inventory.json \
+            --license-output evidence/release/source/release-license-inventory.json \
+            --unknown-license-output evidence/release/source/release-unknown-license-packages.json
+
+      - name: Scan release source SBOM with Grype
+        uses: anchore/scan-action@v7
+        with:
+          sbom: evidence/release/source/release-source.cyclonedx.json
+          output-format: json
+          output-file: evidence/release/source/release-source-vulnerabilities.json
+          fail-build: false
+
+      - name: Evaluate permissive release source vulnerability policy
+        run: |
+          set -euo pipefail
+          python tests/ci/build_grype_vulnerability_summary.py \
+            --report evidence/release/source/release-source-vulnerabilities.json \
+            --source release-source-vulnerabilities.json \
+            --summary-inventory-type release-source-vulnerability-summary \
+            --policy-inventory-type release-source-vulnerability-policy-evaluation \
+            --target-name source \
+            --target-kind source-tree \
+            --policy-description "Report release source dependency vulnerability findings without blocking release publication." \
+            --summary-output evidence/release/source/release-source-vulnerability-summary.json \
+            --policy-output evidence/release/source/release-source-vulnerability-policy-evaluation.json
+
+      - name: Package release source evidence
+        run: |
+          set -euo pipefail
+          tar -czf evidence/release/release-source-evidence.tar.gz -C evidence/release/source .
+
+      - name: Upload release source evidence
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-source-evidence
+          path: |
+            evidence/release/source/*.json
+            evidence/release/release-source-evidence.tar.gz
+          if-no-files-found: error
+
+      - name: Attach release source evidence to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ steps.release.outputs.tag }}" evidence/release/release-source-evidence.tar.gz --clobber
+
+  release-image-evidence:
+    name: Publish release image evidence ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: dev-ui
+            image: dev-ui
+          - name: orchestrator-api
+            image: orchestrator-api
+          - name: retrieval-api
+            image: retrieval-api
+          - name: ingestion-worker
+            image: ingestion-worker
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare release image evidence directories
+        run: mkdir -p "evidence/release/${{ matrix.image }}" evidence/release/publish-inputs
+
+      - name: Download release image digest inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.event.workflow_run.id }}" \
+            --name release-image-digests \
+            --dir evidence/release/publish-inputs
+
+      - name: Resolve release image digest
+        id: release_image
+        env:
+          SERVICE_NAME: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import pathlib
+          import sys
+
+          service = os.environ["SERVICE_NAME"]
+          inventory = json.loads(
+              pathlib.Path("evidence/release/publish-inputs/release-image-digests.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+          for image in inventory.get("images", []):
+              if image.get("service") == service:
+                  print(f"release={inventory.get('release', '')}")
+                  print(f"name={image['name']}")
+                  print(f"digest={image['digest']}")
+                  print(f"reference={image['reference']}")
+                  break
+          else:
+              sys.exit(f"Missing release image digest for {service}")
+          PY
+
+      - name: Generate release image CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.release_image.outputs.reference }}
+          format: cyclonedx-json
+          output-file: evidence/release/${{ matrix.image }}/release-image-sbom.${{ matrix.image }}.cyclonedx.json
+          dependency-snapshot: false
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Scan release image SBOM with Grype
+        uses: anchore/scan-action@v7
+        with:
+          sbom: evidence/release/${{ matrix.image }}/release-image-sbom.${{ matrix.image }}.cyclonedx.json
+          output-format: json
+          output-file: evidence/release/${{ matrix.image }}/release-image-vulnerabilities.${{ matrix.image }}.json
+          fail-build: false
+
+      - name: Evaluate permissive release image vulnerability policy
+        run: |
+          set -euo pipefail
+          python tests/ci/build_grype_vulnerability_summary.py \
+            --report evidence/release/${{ matrix.image }}/release-image-vulnerabilities.${{ matrix.image }}.json \
+            --source release-image-vulnerabilities.${{ matrix.image }}.json \
+            --summary-inventory-type release-image-vulnerability-summary \
+            --policy-inventory-type release-image-vulnerability-policy-evaluation \
+            --target-name ${{ matrix.image }} \
+            --target-kind container-image \
+            --policy-description "Report release image vulnerability findings without blocking release publication." \
+            --summary-output evidence/release/${{ matrix.image }}/release-image-vulnerability-summary.${{ matrix.image }}.json \
+            --policy-output evidence/release/${{ matrix.image }}/release-image-vulnerability-policy-evaluation.${{ matrix.image }}.json
+
+      - name: Run Trivy release image lint scan
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.cache/trivy"
+          docker pull "${{ steps.release_image.outputs.reference }}"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/evidence/release/${{ matrix.image }}:/evidence:rw" \
+            -v "$HOME/.cache/trivy:/root/.cache:rw" \
+            "$TRIVY_IMAGE" \
+            image \
+            --scanners misconfig,secret \
+            --image-config-scanners misconfig,secret \
+            --format json \
+            --output /evidence/release-image-lint.${{ matrix.image }}.trivy.json \
+            --exit-code 0 \
+            --no-progress \
+            "${{ steps.release_image.outputs.reference }}"
+
+      - name: Evaluate permissive release image lint policy
+        run: |
+          set -euo pipefail
+          python tests/ci/build_trivy_image_lint_summary.py \
+            --report evidence/release/${{ matrix.image }}/release-image-lint.${{ matrix.image }}.trivy.json \
+            --source release-image-lint.${{ matrix.image }}.trivy.json \
+            --target-name ${{ matrix.image }} \
+            --target-kind container-image \
+            --summary-output evidence/release/${{ matrix.image }}/release-image-lint-summary.${{ matrix.image }}.json \
+            --policy-output evidence/release/${{ matrix.image }}/release-image-lint-policy-evaluation.${{ matrix.image }}.json
+
+      - name: Package release image evidence
+        run: |
+          set -euo pipefail
+          tar -czf "evidence/release/${{ matrix.image }}/release-image-evidence.${{ matrix.image }}.tar.gz" \
+            -C "evidence/release/${{ matrix.image }}" \
+            "release-image-sbom.${{ matrix.image }}.cyclonedx.json" \
+            "release-image-vulnerabilities.${{ matrix.image }}.json" \
+            "release-image-vulnerability-summary.${{ matrix.image }}.json" \
+            "release-image-vulnerability-policy-evaluation.${{ matrix.image }}.json" \
+            "release-image-lint.${{ matrix.image }}.trivy.json" \
+            "release-image-lint-summary.${{ matrix.image }}.json" \
+            "release-image-lint-policy-evaluation.${{ matrix.image }}.json"
+
+      - name: Upload release image evidence
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-image-evidence-${{ matrix.image }}
+          path: |
+            evidence/release/${{ matrix.image }}/release-image-sbom.${{ matrix.image }}.cyclonedx.json
+            evidence/release/${{ matrix.image }}/release-image-vulnerabilities.${{ matrix.image }}.json
+            evidence/release/${{ matrix.image }}/release-image-vulnerability-summary.${{ matrix.image }}.json
+            evidence/release/${{ matrix.image }}/release-image-vulnerability-policy-evaluation.${{ matrix.image }}.json
+            evidence/release/${{ matrix.image }}/release-image-lint.${{ matrix.image }}.trivy.json
+            evidence/release/${{ matrix.image }}/release-image-lint-summary.${{ matrix.image }}.json
+            evidence/release/${{ matrix.image }}/release-image-lint-policy-evaluation.${{ matrix.image }}.json
+            evidence/release/${{ matrix.image }}/release-image-evidence.${{ matrix.image }}.tar.gz
+          if-no-files-found: error
+
+      - name: Attach release image evidence to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ steps.release_image.outputs.release }}" "evidence/release/${{ matrix.image }}/release-image-evidence.${{ matrix.image }}.tar.gz" --clobber
