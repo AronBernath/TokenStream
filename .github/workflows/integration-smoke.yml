@@ -661,3 +661,112 @@ jobs:
         if: always()
         run: |
           docker compose -f docker-compose.ci.yml down --volumes --remove-orphans
+
+  dast-authenticated-layer-2b-management:
+    name: DAST Authenticated Layer 2B Management
+    runs-on: ubuntu-24.04
+    needs:
+      - integration-python
+      - docker-build
+      - smoke-compose
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve GHCR owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GHCR_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Prepare Layer 2B evidence directories
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/authz evidence/dast
+          chmod 777 evidence/dast
+
+      - name: Prepare default orchestrator API key registry
+        run: |
+          set -euo pipefail
+          printf '[]\n' > evidence/authz/orchestrator_api_keys.json
+          echo "ORCHESTRATOR_API_KEYS_FILE=$PWD/evidence/authz/orchestrator_api_keys.json" >> "$GITHUB_ENV"
+
+      - name: Build and start CI stack
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.ci.yml build retrieval-api ingestion-worker orchestrator-api dev-ui
+          docker compose -f docker-compose.ci.yml up -d \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+          docker compose -f docker-compose.ci.yml ps
+
+      - name: Run smoke readiness and seed checks
+        env:
+          ORCHESTRATOR_API_KEY: ci-orchestrator-key
+        run: |
+          set -euo pipefail
+          python tests/ci/smoke.py
+
+      - name: Run authenticated Layer 2B management probes
+        run: |
+          set -euo pipefail
+          python tests/ci/dast_auth_management_probe.py \
+            --output evidence/dast/dast-authenticated-management-boundary.json \
+            --fail-on-setup-failure \
+            --fail-on-status-mismatch \
+            --fail-on-validator-failure \
+            --fail-on-auth-boundary-bypass \
+            --fail-on-leakage \
+            --fail-on-unhandled-error
+
+      - name: Build authenticated management DAST summary and policy evidence
+        run: |
+          set -euo pipefail
+          python tests/ci/build_zap_summary.py \
+            --probe-report evidence/dast/dast-authenticated-management-boundary.json \
+            --scanner tokenstream-authenticated-dast-probes \
+            --mode authenticated-layer-2b-management \
+            --policy-mode authenticated-layer-2b-management-permissive \
+            --probe-key authenticated_management_probe \
+            --policy-description "Generate authenticated Layer 2B management behavior evidence without blocking on accepted known gaps." \
+            --summary-output evidence/dast/dast-authenticated-management-summary.json \
+            --policy-output evidence/dast/dast-authenticated-management-policy-evaluation.json
+
+      - name: Upload authenticated management DAST evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: dast-authenticated-layer-2b-management-evidence
+          path: |
+            evidence/dast/dast-authenticated-management-boundary.json
+            evidence/dast/dast-authenticated-management-summary.json
+            evidence/dast/dast-authenticated-management-policy-evaluation.json
+          if-no-files-found: error
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.ci.yml ps
+          docker compose -f docker-compose.ci.yml logs --no-color --tail=200 \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+
+      - name: Stop CI stack
+        if: always()
+        run: |
+          docker compose -f docker-compose.ci.yml down --volumes --remove-orphans

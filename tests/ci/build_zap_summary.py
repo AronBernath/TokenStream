@@ -93,11 +93,15 @@ def build_summary(
     report_paths: list[Path],
     probe_path: Path | None,
     *,
+    scanner: str = "owasp-zap",
     mode: str = "unauthenticated-baseline",
     policy_mode: str = "unauthenticated-baseline-permissive",
     probe_key: str = "unauthenticated_probe",
     policy_description: str = "Generate unauthenticated OWASP ZAP baseline evidence without blocking on alerts.",
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not report_paths and probe_path is None:
+        raise ValueError("At least one ZAP report or probe report is required")
+
     generated_at = datetime.now(UTC).isoformat()
     reports = [(path, _load_json(path)) for path in report_paths]
     alerts = sorted(
@@ -112,7 +116,7 @@ def build_summary(
 
     summary = {
         "product": "TokenStream",
-        "scanner": "owasp-zap",
+        "scanner": scanner,
         "inventory_type": "dast-summary",
         "mode": mode,
         "generated_at": generated_at,
@@ -140,7 +144,7 @@ def build_summary(
 
     policy = {
         "product": "TokenStream",
-        "scanner": "owasp-zap",
+        "scanner": scanner,
         "inventory_type": "dast-policy-evaluation",
         "mode": policy_mode,
         "generated_at": generated_at,
@@ -170,8 +174,9 @@ def build_summary(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Derive DAST summary and policy evidence from ZAP JSON reports.")
-    parser.add_argument("--zap-report", required=True, type=Path, action="append")
+    parser.add_argument("--zap-report", type=Path, action="append", default=[])
     parser.add_argument("--probe-report", type=Path)
+    parser.add_argument("--scanner", default="owasp-zap")
     parser.add_argument("--mode", default="unauthenticated-baseline")
     parser.add_argument("--policy-mode", default="unauthenticated-baseline-permissive")
     parser.add_argument("--probe-key", default="unauthenticated_probe")
@@ -194,6 +199,7 @@ def main() -> None:
     summary, policy = build_summary(
         args.zap_report,
         args.probe_report,
+        scanner=args.scanner,
         mode=args.mode,
         policy_mode=args.policy_mode,
         probe_key=args.probe_key,
