@@ -4,13 +4,12 @@ on:
   release:
     types:
       - published
-  push:
-    tags:
-      - "v*.*.*"
 
 permissions:
   contents: read
   packages: write
+  id-token: write
+  attestations: write
 
 env:
   REGISTRY: ghcr.io
@@ -40,6 +39,13 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
 
       - name: Resolve image name
         shell: bash
@@ -50,12 +56,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare release provenance evidence directory
+        run: mkdir -p "evidence/release/${{ matrix.image }}"
 
       - name: Docker metadata
         id: meta
@@ -73,6 +85,7 @@ jobs:
             org.opencontainers.image.description=TokenStream service image for ${{ matrix.name }}
 
       - name: Build and push image
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -83,3 +96,159 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      - name: Generate image build provenance attestation
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Sign image digest with Cosign keyless
+        env:
+          COSIGN_YES: "true"
+        run: |
+          set -euo pipefail
+          cosign sign "$IMAGE_NAME@${{ steps.build.outputs.digest }}"
+
+      - name: Write release image digest evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/ci/build_release_image_digest_inventory.py entry \
+            --service-name "${{ matrix.image }}" \
+            --image-name "$IMAGE_NAME" \
+            --image-digest "${{ steps.build.outputs.digest }}" \
+            --output "evidence/release/${{ matrix.image }}/release-image-digest.${{ matrix.image }}.json"
+
+      - name: Write release provenance subject evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/ci/build_release_image_provenance_subject.py \
+            --service-name "${{ matrix.image }}" \
+            --image-name "$IMAGE_NAME" \
+            --image-digest "${{ steps.build.outputs.digest }}" \
+            --attestation-action "actions/attest@v4" \
+            --output "evidence/release/${{ matrix.image }}/release-image-provenance-subject.${{ matrix.image }}.json"
+
+      - name: Write release image signature evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tests/ci/build_release_image_signature_inventory.py entry \
+            --service-name "${{ matrix.image }}" \
+            --image-name "$IMAGE_NAME" \
+            --image-digest "${{ steps.build.outputs.digest }}" \
+            --signature-tool "cosign" \
+            --signature-mode "keyless" \
+            --output "evidence/release/${{ matrix.image }}/release-image-signature.${{ matrix.image }}.json"
+
+      - name: Upload release provenance subject evidence
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-image-provenance-subject-${{ matrix.image }}
+          path: evidence/release/${{ matrix.image }}/release-image-provenance-subject.${{ matrix.image }}.json
+          if-no-files-found: error
+
+      - name: Upload release image digest evidence
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-image-digest-${{ matrix.image }}
+          path: evidence/release/${{ matrix.image }}/release-image-digest.${{ matrix.image }}.json
+          if-no-files-found: error
+
+      - name: Upload release image signature evidence
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-image-signature-${{ matrix.image }}
+          path: evidence/release/${{ matrix.image }}/release-image-signature.${{ matrix.image }}.json
+          if-no-files-found: error
+
+  release-image-digests:
+    name: Publish release image digest inventory
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Download release image digest evidence
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-image-digest-*
+          path: evidence/release/digest-inputs
+
+      - name: Build aggregate release image digest inventory
+        run: |
+          set -euo pipefail
+          python tests/ci/build_release_image_digest_inventory.py aggregate \
+            --input-dir evidence/release/digest-inputs \
+            --output evidence/release/release-image-digests.json
+
+      - name: Upload release image digest inventory evidence
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-image-digests
+          path: evidence/release/release-image-digests.json
+          if-no-files-found: error
+
+      - name: Attach release image digest inventory to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" evidence/release/release-image-digests.json --clobber
+
+  release-image-signatures:
+    name: Publish release image signature inventory
+    runs-on: ubuntu-latest
+    needs: publish
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Download release image signature evidence
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-image-signature-*
+          path: evidence/release/signature-inputs
+
+      - name: Build aggregate release image signature inventory
+        run: |
+          set -euo pipefail
+          python tests/ci/build_release_image_signature_inventory.py aggregate \
+            --input-dir evidence/release/signature-inputs \
+            --output evidence/release/release-image-signatures.json
+
+      - name: Upload release image signature inventory evidence
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-image-signatures
+          path: evidence/release/release-image-signatures.json
+          if-no-files-found: error
+
+      - name: Attach release image signature inventory to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" evidence/release/release-image-signatures.json --clobber
