@@ -6,6 +6,7 @@ on:
       - ".github/workflows/sbom-inventory.yml"
       - "tests/ci/build_sbom_inventory.py"
       - "tests/ci/build_grype_vulnerability_summary.py"
+      - "tests/ci/build_trivy_image_lint_summary.py"
       - "**/Dockerfile"
       - "**/Dockerfile.*"
       - "**/package.json"
@@ -22,6 +23,7 @@ on:
       - ".github/workflows/sbom-inventory.yml"
       - "tests/ci/build_sbom_inventory.py"
       - "tests/ci/build_grype_vulnerability_summary.py"
+      - "tests/ci/build_trivy_image_lint_summary.py"
       - "**/Dockerfile"
       - "**/Dockerfile.*"
       - "**/package.json"
@@ -35,6 +37,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  TRIVY_IMAGE: aquasec/trivy:0.73.0@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c
 
 jobs:
   source-sbom:
@@ -214,6 +219,35 @@ jobs:
             --summary-output evidence/images/${{ matrix.image }}/image-vulnerability-summary.${{ matrix.image }}.json \
             --policy-output evidence/images/${{ matrix.image }}/image-policy-evaluation.${{ matrix.image }}.json
 
+      - name: Run Trivy static image lint scan
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.cache/trivy"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/evidence/images/${{ matrix.image }}:/evidence:rw" \
+            -v "$HOME/.cache/trivy:/root/.cache:rw" \
+            "$TRIVY_IMAGE" \
+            image \
+            --scanners misconfig,secret \
+            --image-config-scanners misconfig,secret \
+            --format json \
+            --output /evidence/image-lint.${{ matrix.image }}.trivy.json \
+            --exit-code 0 \
+            --no-progress \
+            "$IMAGE_NAME"
+
+      - name: Evaluate permissive image lint policy
+        run: |
+          set -euo pipefail
+          python tests/ci/build_trivy_image_lint_summary.py \
+            --report evidence/images/${{ matrix.image }}/image-lint.${{ matrix.image }}.trivy.json \
+            --source image-lint.${{ matrix.image }}.trivy.json \
+            --target-name ${{ matrix.image }} \
+            --target-kind container-image \
+            --summary-output evidence/images/${{ matrix.image }}/image-lint-summary.${{ matrix.image }}.json \
+            --policy-output evidence/images/${{ matrix.image }}/image-lint-policy-evaluation.${{ matrix.image }}.json
+
       - name: Upload static image scan evidence
         if: always()
         uses: actions/upload-artifact@v5
@@ -224,4 +258,7 @@ jobs:
             evidence/images/${{ matrix.image }}/image-vulnerabilities.${{ matrix.image }}.json
             evidence/images/${{ matrix.image }}/image-vulnerability-summary.${{ matrix.image }}.json
             evidence/images/${{ matrix.image }}/image-policy-evaluation.${{ matrix.image }}.json
+            evidence/images/${{ matrix.image }}/image-lint.${{ matrix.image }}.trivy.json
+            evidence/images/${{ matrix.image }}/image-lint-summary.${{ matrix.image }}.json
+            evidence/images/${{ matrix.image }}/image-lint-policy-evaluation.${{ matrix.image }}.json
           if-no-files-found: error
