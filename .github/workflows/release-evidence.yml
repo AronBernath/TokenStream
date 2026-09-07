@@ -21,10 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
     steps:
-      - name: Check out release commit
+      - name: Check out workflow tooling
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
       - name: Prepare release source evidence directory
@@ -44,13 +43,30 @@ jobs:
         run: |
           set -euo pipefail
           tag="$(
-            python -c "import json, pathlib; print(json.loads(pathlib.Path('evidence/release/publish-inputs/release-image-digests.json').read_text(encoding='utf-8'))['release'])"
+            python -c "import json, pathlib; print(json.loads(pathlib.Path('evidence/release/publish-inputs/release-image-digests.json').read_text(encoding='utf-8')).get('release', ''))"
+          )"
+          commit="$(
+            python -c "import json, pathlib; print(json.loads(pathlib.Path('evidence/release/publish-inputs/release-image-digests.json').read_text(encoding='utf-8')).get('commit', ''))"
           )"
           if [ -z "$tag" ]; then
             echo "Release tag is missing from release-image-digests.json" >&2
             exit 1
           fi
+          if [ -z "$commit" ]; then
+            echo "Release commit is missing from release-image-digests.json" >&2
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "RELEASE_COMMIT=$commit" >> "$GITHUB_ENV"
+
+      - name: Check out release source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.commit }}
+          path: release-source
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -61,20 +77,20 @@ jobs:
       - name: Resolve Python dependencies for release SBOM scan
         run: |
           set -euo pipefail
-          python -m venv .sbom-python-env
-          . .sbom-python-env/bin/activate
+          python -m venv release-source/.sbom-python-env
+          . release-source/.sbom-python-env/bin/activate
           python -m pip install --upgrade pip
           python -m pip install --only-binary=:all: \
-            -r requirements-dev.txt \
-            -r services/orchestrator_api/requirements.txt \
-            -r services/retrieval_api/requirements.txt \
-            -r services/ingestion_worker/requirements.txt \
-            -r services/dev-ui/requirements.txt
+            -r release-source/requirements-dev.txt \
+            -r release-source/services/orchestrator_api/requirements.txt \
+            -r release-source/services/retrieval_api/requirements.txt \
+            -r release-source/services/ingestion_worker/requirements.txt \
+            -r release-source/services/dev-ui/requirements.txt
 
       - name: Generate release source CycloneDX SBOM
         uses: anchore/sbom-action@v0
         with:
-          path: .
+          path: release-source
           format: cyclonedx-json
           output-file: evidence/release/source/release-source.cyclonedx.json
           dependency-snapshot: false
@@ -152,10 +168,9 @@ jobs:
           - name: ingestion-worker
             image: ingestion-worker
     steps:
-      - name: Check out release commit
+      - name: Check out workflow tooling
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
       - name: Set up Python
@@ -316,14 +331,12 @@ jobs:
       - release-image-evidence
     if: github.event.workflow_run.conclusion == 'success'
     env:
-      RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha }}
       RELEASE_WORKFLOW_RUN_ID: ${{ github.run_id }}
       PUBLISH_IMAGES_WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
     steps:
-      - name: Check out release commit
+      - name: Check out workflow tooling
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
       - name: Set up Python
@@ -360,13 +373,23 @@ jobs:
         run: |
           set -euo pipefail
           tag="$(
-            python -c "import json, pathlib; print(json.loads(pathlib.Path('evidence/release/publish-inputs/release-image-digests.json').read_text(encoding='utf-8'))['release'])"
+            python -c "import json, pathlib; print(json.loads(pathlib.Path('evidence/release/publish-inputs/release-image-digests.json').read_text(encoding='utf-8')).get('release', ''))"
+          )"
+          commit="$(
+            python -c "import json, pathlib; print(json.loads(pathlib.Path('evidence/release/publish-inputs/release-image-digests.json').read_text(encoding='utf-8')).get('commit', ''))"
           )"
           if [ -z "$tag" ]; then
             echo "Release tag is missing from release-image-digests.json" >&2
             exit 1
           fi
+          if [ -z "$commit" ]; then
+            echo "Release commit is missing from release-image-digests.json" >&2
+            exit 1
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "RELEASE_COMMIT=$commit" >> "$GITHUB_ENV"
 
       - name: Build release advisory inventory and update candidates
         run: |
