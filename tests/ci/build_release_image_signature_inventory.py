@@ -21,14 +21,24 @@ def _validate_digest(image_digest: str) -> None:
 
 def _context() -> dict[str, str]:
     return {
-        "release": os.environ.get("GITHUB_REF_NAME", ""),
+        "release": os.environ.get("RELEASE_TAG") or os.environ.get("GITHUB_REF_NAME", ""),
         "repository": os.environ.get("GITHUB_REPOSITORY", ""),
-        "commit": os.environ.get("GITHUB_SHA", ""),
+        "commit": os.environ.get("RELEASE_COMMIT") or os.environ.get("GITHUB_SHA", ""),
         "workflow": os.environ.get("GITHUB_WORKFLOW", ""),
         "run_id": os.environ.get("GITHUB_RUN_ID", ""),
         "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", ""),
         "event_name": os.environ.get("GITHUB_EVENT_NAME", ""),
     }
+
+
+def _inventory_context(entries: list[dict[str, Any]]) -> dict[str, str]:
+    context = _context()
+    for field in ("release", "repository", "commit"):
+        for entry in entries:
+            if entry.get(field):
+                context[field] = str(entry[field])
+                break
+    return context
 
 
 def build_entry(
@@ -76,7 +86,7 @@ def build_inventory(entries: list[dict[str, Any]]) -> dict[str, Any]:
         "product": "TokenStream",
         "inventory_type": "release-image-signatures",
         "generated_at": datetime.now(UTC).isoformat(),
-        **_context(),
+        **_inventory_context(entries),
         "signature_count": len(signatures),
         "signatures": signatures,
     }

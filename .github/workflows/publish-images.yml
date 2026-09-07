@@ -4,6 +4,12 @@ on:
   release:
     types:
       - published
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to publish or backfill, for example v0.1.1"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -42,9 +48,54 @@ jobs:
             image: ingestion-worker
 
     steps:
-      - name: Check out repository
+      - name: Check out workflow tooling
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${REQUESTED_RELEASE_TAG}"
+          if [ -z "$tag" ]; then
+            echo "Release tag is required" >&2
+            exit 1
+          fi
+          case "$tag" in
+            v[0-9]*.[0-9]*.[0-9]*)
+              ;;
+            *)
+              echo "Release tag must look like v0.1.1" >&2
+              exit 1
+              ;;
+          esac
+
+          gh release view "$tag" >/dev/null
+          git fetch --force --tags origin "refs/tags/${tag}:refs/tags/${tag}"
+          commit="$(git rev-list -n 1 "$tag")"
+          short_commit="${commit:0:7}"
+          stable="true"
+          if [[ "$tag" == *"-"* ]]; then
+            stable="false"
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "short_commit=$short_commit" >> "$GITHUB_OUTPUT"
+          echo "stable=$stable" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "RELEASE_COMMIT=$commit" >> "$GITHUB_ENV"
+
+      - name: Check out release source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          path: release-source
           persist-credentials: false
 
       - name: Set up Python
@@ -83,11 +134,11 @@ jobs:
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref_name, 'v') && !contains(github.ref_name, '-') }}
-            type=sha,prefix=sha-
+            type=semver,pattern={{version}},value=${{ steps.release.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.release.outputs.tag }}
+            type=semver,pattern={{major}},value=${{ steps.release.outputs.tag }}
+            type=raw,value=latest,enable=${{ steps.release.outputs.stable == 'true' }}
+            type=raw,value=sha-${{ steps.release.outputs.short_commit }}
           labels: |
             org.opencontainers.image.title=TokenStream ${{ matrix.name }}
             org.opencontainers.image.description=TokenStream service image for ${{ matrix.name }}
@@ -96,8 +147,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ${{ matrix.dockerfile }}
+          context: release-source
+          file: release-source/${{ matrix.dockerfile }}
           target: ${{ matrix.target }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -215,7 +266,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload "$GITHUB_REF_NAME" evidence/release/release-image-digests.json --clobber
+          tag="$(
+            python -c "import json, pathlib; print(json.loads(pathlib.Path('evidence/release/release-image-digests.json').read_text(encoding='utf-8'))['release'])"
+          )"
+          gh release upload "$tag" evidence/release/release-image-digests.json --clobber
 
   release-image-signatures:
     name: Publish release image signature inventory
@@ -259,4 +313,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload "$GITHUB_REF_NAME" evidence/release/release-image-signatures.json --clobber
+          tag="$(
+            python -c "import json, pathlib; print(json.loads(pathlib.Path('evidence/release/release-image-signatures.json').read_text(encoding='utf-8'))['release'])"
+          )"
+          gh release upload "$tag" evidence/release/release-image-signatures.json --clobber
