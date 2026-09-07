@@ -114,6 +114,16 @@ jobs:
             --summary-output evidence/release/source/release-source-vulnerability-summary.json \
             --policy-output evidence/release/source/release-source-vulnerability-policy-evaluation.json
 
+      - name: Normalize release source vulnerability findings
+        run: |
+          set -euo pipefail
+          python tests/ci/build_normalized_grype_findings.py \
+            --report evidence/release/source/release-source-vulnerabilities.json \
+            --target-kind source-tree \
+            --target-name source \
+            --evidence-artifact release-source-vulnerabilities.json \
+            --output evidence/release/source/release-normalized-findings.source.json
+
       - name: Package release source evidence
         run: |
           set -euo pipefail
@@ -243,6 +253,16 @@ jobs:
             --summary-output evidence/release/${{ matrix.image }}/release-image-vulnerability-summary.${{ matrix.image }}.json \
             --policy-output evidence/release/${{ matrix.image }}/release-image-vulnerability-policy-evaluation.${{ matrix.image }}.json
 
+      - name: Normalize release image vulnerability findings
+        run: |
+          set -euo pipefail
+          python tests/ci/build_normalized_grype_findings.py \
+            --report evidence/release/${{ matrix.image }}/release-image-vulnerabilities.${{ matrix.image }}.json \
+            --target-kind container-image \
+            --target-name ${{ matrix.image }} \
+            --evidence-artifact release-image-vulnerabilities.${{ matrix.image }}.json \
+            --output evidence/release/${{ matrix.image }}/release-normalized-findings.${{ matrix.image }}.json
+
       - name: Run Trivy release image lint scan
         run: |
           set -euo pipefail
@@ -282,6 +302,7 @@ jobs:
             "release-image-vulnerabilities.${{ matrix.image }}.json" \
             "release-image-vulnerability-summary.${{ matrix.image }}.json" \
             "release-image-vulnerability-policy-evaluation.${{ matrix.image }}.json" \
+            "release-normalized-findings.${{ matrix.image }}.json" \
             "release-image-lint.${{ matrix.image }}.trivy.json" \
             "release-image-lint-summary.${{ matrix.image }}.json" \
             "release-image-lint-policy-evaluation.${{ matrix.image }}.json"
@@ -295,6 +316,7 @@ jobs:
             evidence/release/${{ matrix.image }}/release-image-vulnerabilities.${{ matrix.image }}.json
             evidence/release/${{ matrix.image }}/release-image-vulnerability-summary.${{ matrix.image }}.json
             evidence/release/${{ matrix.image }}/release-image-vulnerability-policy-evaluation.${{ matrix.image }}.json
+            evidence/release/${{ matrix.image }}/release-normalized-findings.${{ matrix.image }}.json
             evidence/release/${{ matrix.image }}/release-image-lint.${{ matrix.image }}.trivy.json
             evidence/release/${{ matrix.image }}/release-image-lint-summary.${{ matrix.image }}.json
             evidence/release/${{ matrix.image }}/release-image-lint-policy-evaluation.${{ matrix.image }}.json
@@ -307,3 +329,95 @@ jobs:
         run: |
           set -euo pipefail
           gh release upload "${{ steps.release_image.outputs.release }}" "evidence/release/${{ matrix.image }}/release-image-evidence.${{ matrix.image }}.tar.gz" --clobber
+
+  release-advisory-evidence:
+    name: Publish release advisory evidence
+    runs-on: ubuntu-latest
+    needs:
+      - release-source-evidence
+      - release-image-evidence
+    if: github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Prepare release advisory evidence directories
+        run: mkdir -p evidence/release/advisory evidence/release/advisory-inputs evidence/release/publish-inputs
+
+      - name: Download release source evidence
+        uses: actions/download-artifact@v5
+        with:
+          name: release-source-evidence
+          path: evidence/release/advisory-inputs/source
+
+      - name: Download release image evidence
+        uses: actions/download-artifact@v5
+        with:
+          pattern: release-image-evidence-*
+          path: evidence/release/advisory-inputs/images
+
+      - name: Download release image digest inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "${{ github.event.workflow_run.id }}" \
+            --name release-image-digests \
+            --dir evidence/release/publish-inputs
+
+      - name: Resolve release tag
+        id: release
+        run: |
+          set -euo pipefail
+          tag="$(
+            python -c "import json, pathlib; print(json.loads(pathlib.Path('evidence/release/publish-inputs/release-image-digests.json').read_text(encoding='utf-8'))['release'])"
+          )"
+          if [ -z "$tag" ]; then
+            echo "Release tag is missing from release-image-digests.json" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build deduplicated release advisory findings
+        run: |
+          set -euo pipefail
+          python tests/ci/build_release_advisory_findings.py \
+            --input-dir evidence/release/advisory-inputs \
+            --output evidence/release/advisory/release-advisory-findings.json
+
+      - name: Build release update candidates
+        run: |
+          set -euo pipefail
+          python tests/ci/build_release_update_candidates.py \
+            --advisories evidence/release/advisory/release-advisory-findings.json \
+            --output evidence/release/advisory/release-update-candidates.json
+
+      - name: Package release advisory evidence
+        run: |
+          set -euo pipefail
+          tar -czf evidence/release/release-advisory-evidence.tar.gz -C evidence/release/advisory .
+
+      - name: Upload release advisory evidence
+        uses: actions/upload-artifact@v5
+        with:
+          name: release-advisory-evidence
+          path: |
+            evidence/release/advisory/release-advisory-findings.json
+            evidence/release/advisory/release-update-candidates.json
+            evidence/release/release-advisory-evidence.tar.gz
+          if-no-files-found: error
+
+      - name: Attach release advisory evidence to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ steps.release.outputs.tag }}" evidence/release/release-advisory-evidence.tar.gz --clobber
