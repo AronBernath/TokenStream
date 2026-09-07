@@ -114,16 +114,6 @@ jobs:
             --summary-output evidence/release/source/release-source-vulnerability-summary.json \
             --policy-output evidence/release/source/release-source-vulnerability-policy-evaluation.json
 
-      - name: Normalize release source vulnerability findings
-        run: |
-          set -euo pipefail
-          python tests/ci/build_normalized_grype_findings.py \
-            --report evidence/release/source/release-source-vulnerabilities.json \
-            --target-kind source-tree \
-            --target-name source \
-            --evidence-artifact release-source-vulnerabilities.json \
-            --output evidence/release/source/release-normalized-findings.source.json
-
       - name: Package release source evidence
         run: |
           set -euo pipefail
@@ -253,16 +243,6 @@ jobs:
             --summary-output evidence/release/${{ matrix.image }}/release-image-vulnerability-summary.${{ matrix.image }}.json \
             --policy-output evidence/release/${{ matrix.image }}/release-image-vulnerability-policy-evaluation.${{ matrix.image }}.json
 
-      - name: Normalize release image vulnerability findings
-        run: |
-          set -euo pipefail
-          python tests/ci/build_normalized_grype_findings.py \
-            --report evidence/release/${{ matrix.image }}/release-image-vulnerabilities.${{ matrix.image }}.json \
-            --target-kind container-image \
-            --target-name ${{ matrix.image }} \
-            --evidence-artifact release-image-vulnerabilities.${{ matrix.image }}.json \
-            --output evidence/release/${{ matrix.image }}/release-normalized-findings.${{ matrix.image }}.json
-
       - name: Run Trivy release image lint scan
         run: |
           set -euo pipefail
@@ -302,7 +282,6 @@ jobs:
             "release-image-vulnerabilities.${{ matrix.image }}.json" \
             "release-image-vulnerability-summary.${{ matrix.image }}.json" \
             "release-image-vulnerability-policy-evaluation.${{ matrix.image }}.json" \
-            "release-normalized-findings.${{ matrix.image }}.json" \
             "release-image-lint.${{ matrix.image }}.trivy.json" \
             "release-image-lint-summary.${{ matrix.image }}.json" \
             "release-image-lint-policy-evaluation.${{ matrix.image }}.json"
@@ -316,7 +295,6 @@ jobs:
             evidence/release/${{ matrix.image }}/release-image-vulnerabilities.${{ matrix.image }}.json
             evidence/release/${{ matrix.image }}/release-image-vulnerability-summary.${{ matrix.image }}.json
             evidence/release/${{ matrix.image }}/release-image-vulnerability-policy-evaluation.${{ matrix.image }}.json
-            evidence/release/${{ matrix.image }}/release-normalized-findings.${{ matrix.image }}.json
             evidence/release/${{ matrix.image }}/release-image-lint.${{ matrix.image }}.trivy.json
             evidence/release/${{ matrix.image }}/release-image-lint-summary.${{ matrix.image }}.json
             evidence/release/${{ matrix.image }}/release-image-lint-policy-evaluation.${{ matrix.image }}.json
@@ -390,20 +368,41 @@ jobs:
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-      - name: Build deduplicated release advisory findings
+      - name: Build release advisory inventory and update candidates
         run: |
           set -euo pipefail
-          python tests/ci/build_release_advisory_findings.py \
-            --input-dir evidence/release/advisory-inputs \
-            --release-image-digests evidence/release/publish-inputs/release-image-digests.json \
-            --output evidence/release/advisory/release-advisory-findings.json
+          source_report="$(
+            find evidence/release/advisory-inputs/source \
+              -name release-source-vulnerabilities.json \
+              -print \
+              -quit
+          )"
+          if [ -z "$source_report" ]; then
+            echo "Missing release source Grype report" >&2
+            exit 1
+          fi
 
-      - name: Build release update candidates
-        run: |
-          set -euo pipefail
-          python tests/ci/build_release_update_candidates.py \
-            --advisories evidence/release/advisory/release-advisory-findings.json \
-            --output evidence/release/advisory/release-update-candidates.json
+          image_report_args=()
+          for image in dev-ui orchestrator-api retrieval-api ingestion-worker; do
+            image_report="$(
+              find evidence/release/advisory-inputs/images \
+                -name "release-image-vulnerabilities.${image}.json" \
+                -print \
+                -quit
+            )"
+            if [ -z "$image_report" ]; then
+              echo "Missing release image Grype report for ${image}" >&2
+              exit 1
+            fi
+            image_report_args+=(--image-grype-report "${image}=${image_report}")
+          done
+
+          python tests/ci/build_release_advisory_inventory.py \
+            --source-grype-report "$source_report" \
+            "${image_report_args[@]}" \
+            --image-digests evidence/release/publish-inputs/release-image-digests.json \
+            --advisory-output evidence/release/advisory/release-advisory-inventory.json \
+            --update-candidates-output evidence/release/advisory/release-update-candidates.json
 
       - name: Package release advisory evidence
         run: |
@@ -415,7 +414,7 @@ jobs:
         with:
           name: release-advisory-evidence
           path: |
-            evidence/release/advisory/release-advisory-findings.json
+            evidence/release/advisory/release-advisory-inventory.json
             evidence/release/advisory/release-update-candidates.json
             evidence/release/release-advisory-evidence.tar.gz
           if-no-files-found: error
