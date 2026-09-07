@@ -129,6 +129,7 @@ def build_report(advisory_report: dict[str, Any]) -> dict[str, Any]:
         "inventory_type": "release-update-candidates",
         "schema_version": "1.0",
         "generated_at": datetime.now(UTC).isoformat(),
+        "release_context": _as_dict(advisory_report.get("release_context")),
         "source": {
             "inventory_type": "release-advisory-findings",
             "artifact": "release-advisory-findings.json",

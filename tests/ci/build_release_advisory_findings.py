@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -69,6 +70,40 @@ def _read_findings(input_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
             finding for finding in _as_list(report.get("findings")) if isinstance(finding, dict) and finding.get("id")
         )
     return findings, [str(path) for path in input_files]
+
+
+def _release_images(digest_inventory: dict[str, Any]) -> list[dict[str, str]]:
+    images = []
+    for image in _as_list(digest_inventory.get("images")):
+        if not isinstance(image, dict):
+            continue
+        images.append(
+            {
+                "service": str(image.get("service") or ""),
+                "name": str(image.get("name") or ""),
+                "digest": str(image.get("digest") or ""),
+                "reference": str(image.get("reference") or ""),
+            }
+        )
+    return sorted(images, key=lambda image: str(image.get("service") or ""))
+
+
+def _release_context(digest_inventory: dict[str, Any], generated_at: str) -> dict[str, Any]:
+    return {
+        "release": str(digest_inventory.get("release") or os.environ.get("GITHUB_REF_NAME", "")),
+        "commit": str(
+            os.environ.get("RELEASE_COMMIT") or digest_inventory.get("commit") or os.environ.get("GITHUB_SHA", "")
+        ),
+        "repository": str(os.environ.get("GITHUB_REPOSITORY") or digest_inventory.get("repository") or ""),
+        "workflow": str(os.environ.get("GITHUB_WORKFLOW") or digest_inventory.get("workflow") or ""),
+        "workflow_run_id": str(os.environ.get("RELEASE_WORKFLOW_RUN_ID") or os.environ.get("GITHUB_RUN_ID", "")),
+        "workflow_run_attempt": str(os.environ.get("GITHUB_RUN_ATTEMPT", "")),
+        "upstream_workflow_run_id": str(
+            os.environ.get("PUBLISH_IMAGES_WORKFLOW_RUN_ID") or digest_inventory.get("run_id") or ""
+        ),
+        "generated_at": generated_at,
+        "images": _release_images(digest_inventory),
+    }
 
 
 def _merge_component(findings: list[dict[str, Any]]) -> dict[str, str]:
@@ -183,7 +218,12 @@ def _advisory(group_findings: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def build_report(findings: list[dict[str, Any]], input_files: list[str]) -> dict[str, Any]:
+def build_report(
+    findings: list[dict[str, Any]],
+    input_files: list[str],
+    *,
+    digest_inventory: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     grouped: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
     for finding in findings:
         grouped.setdefault(_group_key(finding), []).append(finding)
@@ -197,11 +237,13 @@ def build_report(findings: list[dict[str, Any]], input_files: list[str]) -> dict
         ),
     )
     severity_counts = Counter(str(advisory["severity"]) for advisory in advisories)
+    generated_at = datetime.now(UTC).isoformat()
     return {
         "product": "TokenStream",
         "inventory_type": "release-advisory-findings",
         "schema_version": "1.0",
-        "generated_at": datetime.now(UTC).isoformat(),
+        "generated_at": generated_at,
+        "release_context": _release_context(digest_inventory or {}, generated_at),
         "source": {
             "inventory_type": "normalized-security-findings",
             "input_files": input_files,
@@ -217,6 +259,7 @@ def build_report(findings: list[dict[str, Any]], input_files: list[str]) -> dict
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Deduplicate normalized release security findings.")
     parser.add_argument("--input-dir", required=True, type=Path)
+    parser.add_argument("--release-image-digests", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args()
 
@@ -224,7 +267,8 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     findings, input_files = _read_findings(args.input_dir)
-    report = build_report(findings, input_files)
+    digest_inventory = json.loads(args.release_image_digests.read_text(encoding="utf-8"))
+    report = build_report(findings, input_files, digest_inventory=digest_inventory)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
