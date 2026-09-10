@@ -145,16 +145,38 @@ jobs:
             --required-endpoint /v1/rag/query \
             --required-endpoint /v1/rag/lookup
 
-      - name: Build active DAST summary and policy evidence
+      - name: Build active DAST alert and behavior evidence
         run: |
           set -euo pipefail
           python tests/ci/build_zap_summary.py \
             --zap-report evidence/dast-active/zap-active-orchestrator-api.json \
             --mode active-authenticated-orchestrator-api \
             --policy-mode active-authenticated-orchestrator-permissive \
+            --probe-key active_zap_scan \
             --policy-description "Generate scheduled/manual active OWASP ZAP evidence for selected orchestrator API endpoints without blocking on alerts." \
             --summary-output evidence/dast-active/zap-active-dast-summary.json \
             --policy-output evidence/dast-active/zap-active-dast-policy-evaluation.json
+          python tests/ci/build_active_dast_behavior_summary.py \
+            --coverage-report evidence/dast-active/zap-active-orchestrator-coverage.json \
+            --zap-report evidence/dast-active/zap-active-orchestrator-api.json \
+            --target-endpoint /v1/models \
+            --target-endpoint /v1/chat/completions \
+            --target-endpoint /v1/rag/query \
+            --target-endpoint /v1/rag/lookup \
+            --scan-mode active-authenticated-orchestrator-api \
+            --policy-mode active-authenticated-orchestrator-permissive \
+            --zap-command "zap-api-scan.py -t /zap/wrk/zap-active-orchestrator-openapi.json -f openapi -I -T 20 -J zap-active-orchestrator-api.json -w zap-active-orchestrator-api.md -r zap-active-orchestrator-api.html --hook /zap/wrk/zap_auth_header_hook.py" \
+            --zap-option active_scan_enabled=true \
+            --zap-option safe_scan_flag=false \
+            --zap-option ignore_alert_exit_code=true \
+            --zap-option alert_findings_blocking=false \
+            --zap-option five_xx_blocking=false \
+            --fail-on-missing-target \
+            --fail-on-missing-auth \
+            --fail-on-no-authenticated-traffic \
+            --fail-on-no-targeted-traffic \
+            --summary-output evidence/dast-active/active-dast-behavior-summary.json \
+            --policy-output evidence/dast-active/active-dast-behavior-policy-evaluation.json
 
       - name: Upload active DAST evidence
         if: always()
@@ -170,6 +192,8 @@ jobs:
             evidence/dast-active/zap-active-orchestrator-coverage.json
             evidence/dast-active/zap-active-dast-summary.json
             evidence/dast-active/zap-active-dast-policy-evaluation.json
+            evidence/dast-active/active-dast-behavior-summary.json
+            evidence/dast-active/active-dast-behavior-policy-evaluation.json
           if-no-files-found: error
 
       - name: Dump service logs on failure
