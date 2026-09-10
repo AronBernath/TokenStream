@@ -1,0 +1,192 @@
+name: Active DAST ZAP
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_BUILDKIT: "1"
+  ZAP_IMAGE: ghcr.io/zaproxy/zaproxy:stable
+
+jobs:
+  active-zap-orchestrator:
+    name: Active ZAP Orchestrator API
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Resolve GHCR owner
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "GHCR_OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+
+      - name: Prepare active DAST evidence directories
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/authz evidence/dast-active
+          chmod 777 evidence/dast-active
+
+      - name: Generate active DAST orchestrator key registry
+        env:
+          ORCHESTRATOR_DAST_TOKEN: ${{ secrets.ORCHESTRATOR_DAST_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import sys
+
+          token = os.environ.get("ORCHESTRATOR_DAST_TOKEN", "")
+          if not token:
+              sys.exit("Missing required CI secret: ORCHESTRATOR_DAST_TOKEN")
+
+          payload = [
+              {
+                  "key_id": "ci-active-zap-dast",
+                  "key_hash": hashlib.sha256(token.encode("utf-8")).hexdigest(),
+                  "subject": "ci-active-zap-dast",
+                  "scopes": ["models:list", "chat:invoke", "rag:query"],
+                  "default_pipeline_id": "ci",
+                  "allowed_providers": ["ci-mock"],
+                  "allowed_models": ["ci-mock-model"],
+                  "max_input_tokens": 4096,
+                  "max_output_tokens": 256,
+                  "max_total_tokens": 4608,
+                  "max_top_k": 3,
+              }
+          ]
+
+          output = pathlib.Path("evidence/authz/orchestrator_api_keys.json")
+          output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          PY
+          echo "ORCHESTRATOR_API_KEYS_FILE=$PWD/evidence/authz/orchestrator_api_keys.json" >> "$GITHUB_ENV"
+
+      - name: Build and start CI stack
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.ci.yml build retrieval-api ingestion-worker orchestrator-api dev-ui
+          docker compose -f docker-compose.ci.yml up -d \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+          docker compose -f docker-compose.ci.yml ps
+
+      - name: Run smoke readiness and seed checks
+        env:
+          ORCHESTRATOR_API_KEY: ci-orchestrator-key
+        run: |
+          set -euo pipefail
+          python tests/ci/smoke.py
+
+      - name: Build scoped orchestrator OpenAPI for active DAST
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            http://127.0.0.1:8004/v1/openapi.json \
+            --output evidence/dast-active/orchestrator-openapi.full.json
+          python tests/ci/build_openapi_path_subset.py \
+            --input evidence/dast-active/orchestrator-openapi.full.json \
+            --output evidence/dast-active/zap-active-orchestrator-openapi.json \
+            --server-url http://127.0.0.1:8004 \
+            --tokenstream-ci-examples \
+            --path /v1/models \
+            --path /v1/chat/completions \
+            --path /v1/rag/query \
+            --path /v1/rag/lookup
+
+      - name: Run active ZAP API scan for orchestrator
+        env:
+          ORCHESTRATOR_DAST_TOKEN: ${{ secrets.ORCHESTRATOR_DAST_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp tests/ci/zap_auth_header_hook.py evidence/dast-active/zap_auth_header_hook.py
+          docker run --rm --network host \
+            -e ZAP_AUTH_TOKEN="$ORCHESTRATOR_DAST_TOKEN" \
+            -e ZAP_AUTH_TARGET_BASE_URL="http://127.0.0.1:8004" \
+            -e ZAP_AUTH_COVERAGE_OUTPUT="/zap/wrk/zap-active-orchestrator-coverage.json" \
+            -v "$PWD/evidence/dast-active:/zap/wrk:rw" \
+            "$ZAP_IMAGE" \
+            /bin/sh -c 'zap-api-scan.py \
+              -t /zap/wrk/zap-active-orchestrator-openapi.json \
+              -f openapi \
+              -I \
+              -T 20 \
+              -J zap-active-orchestrator-api.json \
+              -w zap-active-orchestrator-api.md \
+              -r zap-active-orchestrator-api.html \
+              --hook /zap/wrk/zap_auth_header_hook.py'
+
+      - name: Assert active ZAP authenticated coverage
+        run: |
+          set -euo pipefail
+          python tests/ci/assert_zap_authenticated_coverage.py \
+            --coverage-report evidence/dast-active/zap-active-orchestrator-coverage.json \
+            --require-all-protected-authenticated \
+            --require-each-endpoint-observed-authenticated \
+            --require-any-2xx \
+            --required-endpoint /v1/models \
+            --required-endpoint /v1/chat/completions \
+            --required-endpoint /v1/rag/query \
+            --required-endpoint /v1/rag/lookup
+
+      - name: Build active DAST summary and policy evidence
+        run: |
+          set -euo pipefail
+          python tests/ci/build_zap_summary.py \
+            --zap-report evidence/dast-active/zap-active-orchestrator-api.json \
+            --mode active-authenticated-orchestrator-api \
+            --policy-mode active-authenticated-orchestrator-permissive \
+            --policy-description "Generate scheduled/manual active OWASP ZAP evidence for selected orchestrator API endpoints without blocking on alerts." \
+            --summary-output evidence/dast-active/zap-active-dast-summary.json \
+            --policy-output evidence/dast-active/zap-active-dast-policy-evaluation.json
+
+      - name: Upload active DAST evidence
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: dast-active-zap-orchestrator-evidence
+          path: |
+            evidence/dast-active/orchestrator-openapi.full.json
+            evidence/dast-active/zap-active-orchestrator-openapi.json
+            evidence/dast-active/zap-active-orchestrator-api.json
+            evidence/dast-active/zap-active-orchestrator-api.md
+            evidence/dast-active/zap-active-orchestrator-api.html
+            evidence/dast-active/zap-active-orchestrator-coverage.json
+            evidence/dast-active/zap-active-dast-summary.json
+            evidence/dast-active/zap-active-dast-policy-evaluation.json
+          if-no-files-found: error
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.ci.yml ps
+          docker compose -f docker-compose.ci.yml logs --no-color --tail=200 \
+            mock-provider \
+            mock-embedder \
+            mock-registry \
+            qdrant \
+            retrieval-api \
+            ingestion-worker \
+            orchestrator-api \
+            dev-ui
+
+      - name: Stop CI stack
+        if: always()
+        run: |
+          docker compose -f docker-compose.ci.yml down --volumes --remove-orphans

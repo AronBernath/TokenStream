@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--coverage-report", required=True, type=Path)
     parser.add_argument("--require-any-2xx", action="store_true")
     parser.add_argument("--require-all-protected-authenticated", action="store_true")
+    parser.add_argument("--require-each-endpoint-observed-authenticated", action="store_true")
     parser.add_argument("--required-endpoint", action="append", default=[])
     return parser.parse_args()
 
@@ -52,10 +53,17 @@ def main() -> None:
     missing_auth = [message for message in protected_messages if not message.get("authorization_bearer_present")]
     required = tuple(args.required_endpoint or DEFAULT_REQUIRED_ENDPOINTS)
     matched = {endpoint for endpoint in required for message in messages if _matches_endpoint(message, endpoint)}
+    authenticated_observed = {
+        endpoint
+        for endpoint in required
+        for message in protected_messages
+        if message.get("authorization_bearer_present") and _matches_endpoint(message, endpoint)
+    }
 
     summary = {
         "required_endpoints": list(required),
         "matched_authenticated_2xx_endpoints": sorted(matched),
+        "matched_authenticated_observed_endpoints": sorted(authenticated_observed),
         "protected_messages_missing_auth_count": len(missing_auth),
         "authenticated_2xx_count": len(messages),
         "coverage_summary": report.get("summary", {}),
@@ -71,6 +79,14 @@ def main() -> None:
             "ZAP authenticated scan did not record any authenticated 2xx response "
             f"for required endpoint prefixes: {', '.join(required)}"
         )
+
+    if args.require_each_endpoint_observed_authenticated:
+        missing_observed = [endpoint for endpoint in required if endpoint not in authenticated_observed]
+        if missing_observed:
+            raise SystemExit(
+                "ZAP authenticated scan did not record authenticated traffic for required endpoint prefix(es): "
+                + ", ".join(missing_observed)
+            )
 
 
 if __name__ == "__main__":
